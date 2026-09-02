@@ -27,25 +27,30 @@ try {
   console.error('[MediKiosk Backend] Error loading dialogueFlows.json:', err.message);
 }
 
-// Simulated In-Memory Storage (Zero disk persistence requirement)
+// Simulated In-Memory Storage
 const inMemorySessions = [];
 const redFlagAlerts = [];
+const hisPushedRecords = [];
 let tokenCounter = 100;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   const ayushCount = inMemorySessions.filter(s => s.ayushAssessment || s.complaintId === 'ayush_consultation').length;
   const digitizedDocsCount = inMemorySessions.filter(s => s.digitizedDocument).length;
+  const abdmVerifiedCount = inMemorySessions.filter(s => s.abhaDetails && s.abhaDetails.verified).length;
 
   res.json({
     status: 'ok',
     service: 'MediKiosk API Server',
+    sandboxMode: true,
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     activeSessionCount: inMemorySessions.length,
     redFlagAlertCount: redFlagAlerts.length,
     ayushSessionCount: ayushCount,
-    digitizedDocCount: digitizedDocsCount
+    digitizedDocCount: digitizedDocsCount,
+    abdmVerifiedCount: abdmVerifiedCount,
+    hisPushedCount: hisPushedRecords.length
   });
 });
 
@@ -54,62 +59,261 @@ app.get('/api/dialogue-flows', (req, res) => {
   res.json(dialogueFlows);
 });
 
-// Endpoint: POST /api/docai/extract
-// Simulates realistic DocAI OCR extraction with a 2-second processing delay
-app.post('/api/docai/extract', async (req, res) => {
-  const { fileName, documentType, imagePreview } = req.body || {};
-  console.log(`\n📄 [DOCAI OCR] Processing document: ${fileName || 'Uploaded image'} (Type: ${documentType || 'auto-detect'})...`);
+// ==============================================================================
+// 1. MOCK ABDM FLOW: POST /api/abdm/verify
+// ==============================================================================
+app.post('/api/abdm/verify', (req, res) => {
+  const { abhaId, mobile } = req.body || {};
+  console.log(`\n🇮🇳 [ABDM GATEWAY (SANDBOX)] Verifying ABHA / Mobile: ${abhaId || mobile}...`);
 
-  // Simulate 2000ms AI extraction latency
   setTimeout(() => {
-    // Generate realistic simulated extraction based on document intent or type
-    const isLabReport = documentType === 'lab_report' || (fileName && /lab|blood|cbc|test|report/i.test(fileName));
+    const rawNumber = String(abhaId || mobile || '91847210294821').replace(/[^0-9]/g, '');
+
+    const isSunita = rawNumber.includes('3829') || rawNumber.includes('1928');
+    const isAmit = rawNumber.includes('5555') || rawNumber.includes('1234');
+
+    let patientProfile;
+    if (isSunita) {
+      patientProfile = {
+        verified: true,
+        abhaNumber: '91-3829-1928-4019',
+        abhaAddress: 'sunita.devi@abdm',
+        name: 'Sunita Devi',
+        gender: 'Female',
+        dob: '1964-08-22',
+        age: 62,
+        mobile: '+91 98452 11928',
+        address: 'Plot 14, Gandhi Nagar, Bhopal, MP',
+        kycStatus: 'VERIFIED_AADHAAR_OTP',
+        healthLockerLinked: true,
+        verificationTimestamp: new Date().toISOString()
+      };
+    } else if (isAmit) {
+      patientProfile = {
+        verified: true,
+        abhaNumber: '91-5555-1234-8890',
+        abhaAddress: 'amit.verma@abdm',
+        name: 'Amit Kumar Verma',
+        gender: 'Male',
+        dob: '1992-11-04',
+        age: 34,
+        mobile: '+91 97112 33455',
+        address: 'Sector 62, Noida, UP',
+        kycStatus: 'VERIFIED_AADHAAR_DEMOGRAPHIC',
+        healthLockerLinked: true,
+        verificationTimestamp: new Date().toISOString()
+      };
+    } else {
+      const formattedAbha = rawNumber.length === 14 
+        ? `${rawNumber.slice(0,2)}-${rawNumber.slice(2,6)}-${rawNumber.slice(6,10)}-${rawNumber.slice(10,14)}`
+        : '91-8472-1029-4821';
+
+      patientProfile = {
+        verified: true,
+        abhaNumber: formattedAbha,
+        abhaAddress: 'ramesh.sharma@abdm',
+        name: 'Ramesh Chandra Sharma',
+        gender: 'Male',
+        dob: '1958-04-12',
+        age: 68,
+        mobile: '+91 98765 43210',
+        address: 'House 42, Sector 9, Jaipur, Rajasthan',
+        kycStatus: 'VERIFIED_AADHAAR_BIO',
+        healthLockerLinked: true,
+        verificationTimestamp: new Date().toISOString()
+      };
+    }
+
+    console.log(`✅ [ABDM GATEWAY (SANDBOX)] Verified Profile for ${patientProfile.name} (${patientProfile.abhaNumber})`);
+
+    res.status(200).json({
+      success: true,
+      sandbox: true,
+      message: 'ABHA demographic records verified via ABDM sandbox gateway',
+      patientProfile
+    });
+  }, 1500);
+});
+
+// ==============================================================================
+// 2. MOCK HIS/EMR PUSH: POST /api/his/push
+// ==============================================================================
+app.post('/api/his/push', (req, res) => {
+  const { sessionId, tokenNumber, fhirBundle } = req.body || {};
+  console.log(`\n🏥 [HOSPITAL EMR (SANDBOX)] Receiving FHIR Bundle for Token ${tokenNumber || sessionId}...`);
+
+  setTimeout(() => {
+    const emrRecordId = `EMR-REC-2026-${Math.floor(100000 + Math.random() * 900000)}`;
+    const syncTimestamp = new Date().toISOString();
+
+    const pushedEntry = {
+      emrRecordId,
+      sessionId: sessionId || `sess_${Date.now()}`,
+      tokenNumber: tokenNumber || 'K-100',
+      syncedAt: syncTimestamp,
+      resourceCount: fhirBundle?.entry?.length || 5,
+      status: 'COMMITTED_TO_EHR',
+      hospitalName: 'District Central Government Hospital',
+      department: 'Outpatient General & Integrated Medicine'
+    };
+
+    hisPushedRecords.unshift(pushedEntry);
+    console.log(`✅ [HOSPITAL EMR (SANDBOX)] Committed EMR Record: ${emrRecordId} for Token ${tokenNumber}`);
+
+    res.status(200).json({
+      success: true,
+      sandbox: true,
+      message: 'Clinical note and FHIR resources successfully synced to Hospital EMR database',
+      emrRecordId,
+      syncedAt: syncTimestamp,
+      receipt: pushedEntry
+    });
+  }, 1200);
+});
+
+// ==============================================================================
+// 3. CLINICALLY-TAILORED DOCAI OCR: POST /api/docai/extract
+// Extracts context-appropriate lab & radiology values based on chief complaint
+// ==============================================================================
+app.post('/api/docai/extract', async (req, res) => {
+  const { fileName, documentType, complaintId } = req.body || {};
+  console.log(`\n📄 [DOCAI OCR] Processing document: ${fileName || 'Uploaded scan'} (Complaint: ${complaintId || 'auto'}, Type: ${documentType || 'auto'})...`);
+
+  setTimeout(() => {
+    const fnLower = (fileName || '').toLowerCase();
+    const isJointPain = complaintId === 'joint_pain' || /joint|knee|ortho|rheumat|uric|xray|arthritis|swelling|esr|crp/i.test(fnLower);
+    const isFever = complaintId === 'fever' || /fever|dengue|malaria|cbc|platelet|widal/i.test(fnLower);
+    const isCough = complaintId === 'cough_breathlessness' || /cough|breath|chest|pulmo|asthma|eosinophil/i.test(fnLower);
+    const isAbdominal = complaintId === 'abdominal_pain' || /abdo|stomach|ultrasound|usg|liver|lft|gastric/i.test(fnLower);
 
     let extractedData;
 
-    if (isLabReport) {
+    // A. JOINT PAIN & SWELLING: Orthopedic & Rheumatology Panel (Uric acid, CRP, ESR, RA Factor, Knee X-Ray)
+    if (isJointPain) {
+      extractedData = {
+        documentType: 'orthopedic_rheumatology_report',
+        documentTitle: 'Orthopedic Joint Radiology & Rheumatology Panel',
+        facility: 'City Orthopedic & Joint Imaging Center',
+        date: '2026-06-15',
+        affectedAnatomicalPart: 'Bilateral Knee Joints & 1st Metatarsophalangeal Joint',
+        imagingFindings: 'X-Ray Bilateral Knees (AP/Lateral): Medial joint space narrowing (Grade 3 Osteoarthritis), marginal osteophytes & suprapatellar joint effusion.',
+        medications: [
+          { name: 'Etoricoxib', dose: '90mg', frequency: 'once daily (after meals for 10 days)', duration: '10 days', instructions: 'Oral for joint swelling & pain' },
+          { name: 'Febuxostat', dose: '40mg', frequency: 'once daily (morning)', duration: '30 days', instructions: 'Oral for elevated Uric Acid' },
+          { name: 'Calcium Carbonate + Vitamin D3', dose: '500mg/1000IU', frequency: 'once daily (night)', duration: '30 days', instructions: 'Oral supplement' },
+          { name: 'Tramadol + Paracetamol', dose: '37.5/325mg', frequency: 'as needed for severe knee pain flare', duration: 'SOS', instructions: 'Oral SOS' }
+        ],
+        labValues: [
+          { test: 'Serum Uric Acid', value: 8.6, unit: 'mg/dL', referenceRange: '3.5 - 7.2', flag: 'HIGH' },
+          { test: 'C-Reactive Protein (CRP)', value: 24.5, unit: 'mg/L', referenceRange: '< 5.0', flag: 'HIGH' },
+          { test: 'Erythrocyte Sedimentation Rate (ESR)', value: 48, unit: 'mm/hr', referenceRange: '0 - 20', flag: 'HIGH' },
+          { test: 'Rheumatoid Factor (RA Factor)', value: 45, unit: 'IU/mL', referenceRange: '< 14', flag: 'HIGH' },
+          { test: 'Serum Calcium', value: 9.2, unit: 'mg/dL', referenceRange: '8.5 - 10.5', flag: 'NORMAL' },
+          { test: 'Vitamin D3 (25-OH)', value: 16.4, unit: 'ng/mL', referenceRange: '30.0 - 100.0', flag: 'LOW' }
+        ],
+        diagnoses: [
+          'Bilateral Knee Osteoarthritis with Active Synovial Joint Effusion',
+          'Hyperuricemic Arthropathy (Gouty Flare)',
+          'Vitamin D Deficiency'
+        ],
+        confidenceScore: 0.97,
+        rawNotes: 'High Serum Uric Acid (8.6) and elevated inflammatory markers (CRP 24.5, ESR 48) confirming active joint inflammation with bilateral knee effusion.'
+      };
+    } 
+    // B. FEVER / INFECTION: Complete Blood Count & Serology
+    else if (isFever) {
       extractedData = {
         documentType: 'lab_report',
-        documentTitle: 'Comprehensive Clinical Pathology Report',
-        facility: 'City Central Diagnostic Center',
+        documentTitle: 'Hematology & Acute Infection Diagnostic Panel',
+        facility: 'District Hospital Pathology Lab',
         date: '2026-06-15',
-        patientName: 'Patient Check-In',
-        medications: [],
-        labValues: [
-          { test: 'Fasting Blood Sugar', value: 142, unit: 'mg/dL', referenceRange: '70 - 100', flag: 'HIGH' },
-          { test: 'HbA1c (Glycated Hemoglobin)', value: 7.4, unit: '%', referenceRange: '4.0 - 5.6', flag: 'HIGH' },
-          { test: 'Serum Creatinine', value: 0.9, unit: 'mg/dL', referenceRange: '0.6 - 1.2', flag: 'NORMAL' },
-          { test: 'Total Cholesterol', value: 215, unit: 'mg/dL', referenceRange: '125 - 200', flag: 'HIGH' },
-          { test: 'Hemoglobin (Hb)', value: 10.8, unit: 'g/dL', referenceRange: '12.0 - 16.0', flag: 'LOW' }
+        medications: [
+          { name: 'Paracetamol', dose: '650mg', frequency: 'thrice daily for fever spikes', duration: '5 days' },
+          { name: 'Doxycycline', dose: '100mg', frequency: 'twice daily (after food)', duration: '7 days' },
+          { name: 'Oral Rehydration Salts (ORS)', dose: '1 sachet', frequency: 'dissolved in 1L water daily', duration: '3 days' }
         ],
-        diagnoses: ['Impaired Fasting Glucose', 'Mild Anemia'],
-        confidenceScore: 0.94,
-        rawNotes: 'Fasting blood sugar and HbA1c elevated. Recommend physician consultation for glycemic management.'
+        labValues: [
+          { test: 'Platelet Count', value: 85000, unit: '/uL', referenceRange: '150,000 - 450,000', flag: 'LOW' },
+          { test: 'Total Leukocyte Count (TLC)', value: 14200, unit: '/uL', referenceRange: '4,000 - 11,000', flag: 'HIGH' },
+          { test: 'Dengue NS1 Antigen', value: 'Positive', unit: 'Index', referenceRange: 'Negative', flag: 'HIGH' },
+          { test: 'Hemoglobin (Hb)', value: 12.8, unit: 'g/dL', referenceRange: '12.0 - 16.0', flag: 'NORMAL' },
+          { test: 'Serum Bilirubin (Total)', value: 1.1, unit: 'mg/dL', referenceRange: '0.2 - 1.2', flag: 'NORMAL' }
+        ],
+        diagnoses: ['Acute Viral Syndrome / Suspected Dengue Fever', 'Thrombocytopenia'],
+        confidenceScore: 0.95
       };
-    } else {
-      // Default: Prescription
+    }
+    // C. COUGH & BREATHLESSNESS: Pulmonology & Allergy Panel
+    else if (isCough) {
+      extractedData = {
+        documentType: 'pulmonology_report',
+        documentTitle: 'Pulmonary Diagnostic & Allergy Evaluation Report',
+        facility: 'Chest & Respiratory Clinic',
+        date: '2026-06-15',
+        imagingFindings: 'Chest X-Ray (PA View): Mild bilateral peribronchial thickening. No focal consolidation or pleural effusion.',
+        medications: [
+          { name: 'Montelukast + Levocetirizine', dose: '10mg/5mg', frequency: 'once daily (bedtime)', duration: '14 days' },
+          { name: 'Budesonide + Formoterol Inhaler', dose: '200mcg/6mcg', frequency: '2 puffs twice daily with spacer', duration: '30 days' },
+          { name: 'Amoxicillin + Clavulanic Acid', dose: '625mg', frequency: 'twice daily', duration: '5 days' }
+        ],
+        labValues: [
+          { test: 'Absolute Eosinophil Count (AEC)', value: 680, unit: '/uL', referenceRange: '20 - 500', flag: 'HIGH' },
+          { test: 'Oxygen Saturation (SpO2 Resting)', value: 94, unit: '%', referenceRange: '95 - 100', flag: 'LOW' },
+          { test: 'Total Serum IgE', value: 420, unit: 'IU/mL', referenceRange: '< 100', flag: 'HIGH' },
+          { test: 'Total Leukocyte Count (TLC)', value: 8900, unit: '/uL', referenceRange: '4,000 - 11,000', flag: 'NORMAL' }
+        ],
+        diagnoses: ['Hyper-reactive Airway Disease / Allergic Bronchitis', 'Mild Exertional Hypoxemia'],
+        confidenceScore: 0.94
+      };
+    }
+    // D. ABDOMINAL PAIN: Gastroenterology & Ultrasound
+    else if (isAbdominal) {
+      extractedData = {
+        documentType: 'gastroenterology_report',
+        documentTitle: 'Abdominal Ultrasound & Hepato-Pancreatic Panel',
+        facility: 'Gastroenterology Diagnostic Wing',
+        date: '2026-06-15',
+        imagingFindings: 'Ultrasound Whole Abdomen: Single 8mm non-obstructing calculus in gallbladder. Normal common bile duct diameter (4mm). Mild grade 1 fatty liver.',
+        medications: [
+          { name: 'Pantoprazole', dose: '40mg', frequency: 'once daily before breakfast', duration: '14 days' },
+          { name: 'Drotaverine + Mefenamic Acid', dose: '80mg/250mg', frequency: 'as needed for spasmodic pain', duration: 'SOS' },
+          { name: 'Ursodeoxycholic Acid', dose: '300mg', frequency: 'twice daily after food', duration: '30 days' }
+        ],
+        labValues: [
+          { test: 'Serum Bilirubin (Total)', value: 1.8, unit: 'mg/dL', referenceRange: '0.2 - 1.2', flag: 'HIGH' },
+          { test: 'SGPT / ALT (Liver Enzyme)', value: 78, unit: 'U/L', referenceRange: '10 - 40', flag: 'HIGH' },
+          { test: 'Serum Amylase', value: 85, unit: 'U/L', referenceRange: '28 - 100', flag: 'NORMAL' },
+          { test: 'Serum Lipase', value: 42, unit: 'U/L', referenceRange: '10 - 60', flag: 'NORMAL' }
+        ],
+        diagnoses: ['Symptomatic Cholelithiasis (Gallbladder Stone)', 'Mild Transaminitis / Dyspepsia'],
+        confidenceScore: 0.96
+      };
+    }
+    // E. GENERAL / DIABETES / METABOLIC (DEFAULT)
+    else {
       extractedData = {
         documentType: 'prescription',
-        documentTitle: 'Physician Outpatient Prescription',
+        documentTitle: 'Endocrine & Metabolic Outpatient Record',
         facility: 'District Government Hospital OPD',
         date: '2026-06-15',
         prescriber: 'Dr. S. K. Mehta (MD, Gen Med)',
         medications: [
-          { name: 'Metformin', dose: '500mg', frequency: 'twice daily (after meals)', duration: '30 days', instructions: 'Oral' },
-          { name: 'Amlodipine', dose: '5mg', frequency: 'once daily (morning)', duration: '30 days', instructions: 'Oral' },
-          { name: 'Paracetamol', dose: '650mg', frequency: 'as needed for fever/pain', duration: '5 days', instructions: 'Oral SOS' }
+          { name: 'Metformin', dose: '500mg', frequency: 'twice daily (after meals)', duration: '30 days' },
+          { name: 'Amlodipine', dose: '5mg', frequency: 'once daily (morning)', duration: '30 days' },
+          { name: 'Paracetamol', dose: '650mg', frequency: 'as needed for fever/pain', duration: '5 days' }
         ],
         labValues: [
           { test: 'Fasting Blood Sugar', value: 142, unit: 'mg/dL', referenceRange: '70 - 100', flag: 'HIGH' },
-          { test: 'Blood Pressure (Systolic/Diastolic)', value: '140/90', unit: 'mmHg', referenceRange: '120/80', flag: 'HIGH' }
+          { test: 'HbA1c (Glycated Hemoglobin)', value: 7.4, unit: '%', referenceRange: '4.0 - 5.6', flag: 'HIGH' },
+          { test: 'Blood Pressure (Systolic/Diastolic)', value: '140/90', unit: 'mmHg', referenceRange: '120/80', flag: 'HIGH' },
+          { test: 'Serum Creatinine', value: 0.9, unit: 'mg/dL', referenceRange: '0.6 - 1.2', flag: 'NORMAL' }
         ],
         diagnoses: ['Type 2 Diabetes Mellitus', 'Stage 1 Essential Hypertension'],
-        confidenceScore: 0.96,
-        rawNotes: 'Review in 1 month with updated Fasting/PP blood sugar profile.'
+        confidenceScore: 0.96
       };
     }
 
-    console.log(`✅ [DOCAI OCR] Successfully extracted ${extractedData.medications.length} meds, ${extractedData.labValues.length} lab tests.`);
+    console.log(`✅ [DOCAI OCR] Context extraction generated for ${extractedData.documentTitle} (${extractedData.labValues.length} lab tests).`);
 
     res.status(200).json({
       success: true,
@@ -156,6 +360,9 @@ app.post('/api/session/submit', (req, res) => {
     redFlagsTriggered, 
     language, 
     patientDetails,
+    abhaDetails,
+    consentStatus,
+    consentTimestamp,
     digitizedDocument,
     ayushAssessment
   } = req.body;
@@ -169,21 +376,29 @@ app.post('/api/session/submit', (req, res) => {
     answers: answers || [],
     redFlagsTriggered: redFlagsTriggered || [],
     language: language || 'English',
-    patientDetails: patientDetails || {
-      name: 'Anonymous Patient',
-      age: 45,
-      gender: 'Unspecified'
-    },
-    // New Feature Fields: Document Digitization & AYUSH
+    patientDetails: patientDetails || (abhaDetails ? {
+      name: abhaDetails.name,
+      age: abhaDetails.age,
+      gender: abhaDetails.gender,
+      abhaNumber: abhaDetails.abhaNumber,
+      abhaAddress: abhaDetails.abhaAddress
+    } : {
+      name: 'Ramesh Chandra Sharma',
+      age: 68,
+      gender: 'Male',
+      abhaNumber: '91-8472-1029-4821'
+    }),
+    abhaDetails: abhaDetails || null,
+    consentStatus: consentStatus || 'GRANTED',
+    consentTimestamp: consentTimestamp || new Date().toISOString(),
     digitizedDocument: digitizedDocument || null,
     ayushAssessment: ayushAssessment || null,
     status: redFlagsTriggered && redFlagsTriggered.length > 0 ? 'TRIAGE_URGENT' : 'WAITING_OPD'
   };
 
-  // In-memory store only
   inMemorySessions.unshift(newSession);
 
-  console.log(`\n✅ [SESSION SUBMITTED] Token: ${tokenNumber} | Complaint: ${complaintTitle} | AYUSH: ${!!ayushAssessment} | Digitized Doc: ${!!digitizedDocument} | Red Flags: ${newSession.redFlagsTriggered.length}`);
+  console.log(`\n✅ [SESSION SUBMITTED] Token: ${tokenNumber} | Complaint: ${complaintTitle} | Doc: ${digitizedDocument ? digitizedDocument.documentTitle : 'None'} | Red Flags: ${newSession.redFlagsTriggered.length}`);
 
   res.status(201).json({
     success: true,
@@ -198,7 +413,8 @@ app.get('/api/sessions', (req, res) => {
   res.json({
     totalSessions: inMemorySessions.length,
     sessions: inMemorySessions,
-    redFlags: redFlagAlerts
+    redFlags: redFlagAlerts,
+    hisPushes: hisPushedRecords
   });
 });
 

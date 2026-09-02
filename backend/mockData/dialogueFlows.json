@@ -149,54 +149,43 @@
           ]
         },
         {
-          "id": "abdo_radiation",
-          "dimension": "Radiation",
-          "questionEn": "Does the pain travel to any other area?",
-          "questionHi": "क्या दर्द किसी और जगह भी फैलता है?",
+          "id": "abdo_associations",
+          "dimension": "Associations",
+          "questionEn": "Are you experiencing any of these other signs?",
+          "questionHi": "क्या इनमें से कोई अन्य लक्षण भी हैं?",
           "options": [
-            { "labelEn": "Stays in one spot", "labelHi": "एक ही जगह रहता है", "value": "local" },
-            { "labelEn": "Goes to the back", "labelHi": "पीठ की तरफ जाता है", "value": "back" },
-            { "labelEn": "Goes to groin/thigh", "labelHi": "जांघ की तरफ जाता है", "value": "groin" }
+            { "labelEn": "Repeated vomiting or diarrhea", "labelHi": "बार-बार उल्टी या दस्त", "value": "vomiting_diarrhea" },
+            { "labelEn": "High fever with shaking chills", "labelHi": "कंपकंपी के साथ तेज बुखार", "value": "fever_chills" },
+            { "labelEn": "Severe dizziness / Blood in vomit or stool", "labelHi": "उल्टी या शौच में खून आना", "value": "bleeding_dizziness", "isRedFlag": true },
+            { "labelEn": "Gas / Bloating only", "labelHi": "केवल गैस या पेट फूलना", "value": "bloating_only" }
           ]
         },
         {
-          "id": "abdo_associations",
-          "dimension": "Associations",
-          "questionEn": "Are you experiencing vomiting or digestion issues?",
-          "questionHi": "क्या उल्टी या दस्त की शिकायत भी है?",
+          "id": "abdo_severity",
+          "dimension": "Severity",
+          "questionEn": "How severe is the abdominal pain right now?",
+          "questionHi": "पेट का दर्द कितना असहनीय है?",
           "options": [
-            { "labelEn": "Nausea or Vomiting", "labelHi": "जी मिचलाना या उल्टी", "value": "nausea_vomiting" },
-            { "labelEn": "Loose stools / Diarrhea", "labelHi": "दस्त / दस्त लगना", "value": "diarrhea" },
-            { "labelEn": "Inability to pass gas/stool", "labelHi": "गैस या लैट्रिन न होना", "value": "constipation" },
-            { "labelEn": "Sudden arm/face numbness", "labelHi": "अचानक चेहरे या हाथ का सुन्न पड़ना", "value": "numbness", "isRedFlag": true }
+            { "labelEn": "Mild (Tolerable)", "labelHi": "हल्का (सहने योग्य)", "value": "mild" },
+            { "labelEn": "Moderate (Hard to sit/walk)", "labelHi": "मध्यम (बैठने/चलने में परेशानी)", "value": "moderate" },
+            { "labelEn": "Severe (Doubled over in agony)", "labelHi": "अत्यधिक तेज (असहनीय दर्द)", "value": "severe" }
           ]
         }
       ]
     },
     {
       "id": "chest_pain",
-      "titleEn": "Chest Pain / Discomfort",
+      "titleEn": "Chest Pain / Heart Concern",
       "titleHi": "सीने में दर्द / भारीपन",
       "iconName": "HeartPulse",
-      "descriptionEn": "Pressure, tightness, or pain in chest",
-      "descriptionHi": "सीने में दबाव, दर्द या भारीपन की शिकायत",
+      "descriptionEn": "Pressure, squeezing, tightness, or heart palpitations",
+      "descriptionHi": "छाती में जकड़न, घबराहट या भारी दबाव",
       "color": "rose",
       "questions": [
         {
-          "id": "chest_site",
-          "dimension": "Site",
-          "questionEn": "Where exactly is the pain located?",
-          "questionHi": "दर्द ठीक किस जगह पर है?",
-          "options": [
-            { "labelEn": "Center of chest", "labelHi": "सीने के ठीक बीच में", "value": "center" },
-            { "labelEn": "Left side of chest", "labelHi": "सीने की बाईं तरफ", "value": "left_chest" },
-            { "labelEn": "Right side of chest", "labelHi": "सीने की दाहिनी तरफ", "value": "right_chest" }
-          ]
-        },
-        {
           "id": "chest_character",
           "dimension": "Character",
-          "questionEn": "What type of sensation are you experiencing?",
+          "questionEn": "How does the chest pain or discomfort feel?",
           "questionHi": "आपको सीने में कैसा महसूस हो रहा है?",
           "options": [
             { "labelEn": "Heavy pressure / Squeezing tightness", "labelHi": "भारी दबाव या घुटन महसूस होना", "value": "pressure_tightness" },
@@ -242,56 +231,61 @@
     },
     {
       "id": "joint_pain",
-      "titleEn": "Joint Pain / Swelling",
-      "titleHi": "जोड़ों में दर्द / सूजन",
+      "titleEn": "Joint Pain & Swelling",
+      "titleHi": "जोड़ों में दर्द व सूजन",
       "iconName": "Bone",
-      "descriptionEn": "Knee, wrist, hip, or finger joint stiffness",
-      "descriptionHi": "घुटने, हाथ, रीढ़ या जोड़ों में दर्द व सूजन",
+      "descriptionEn": "Knees, hands, ankles, uric acid or arthritis swelling",
+      "descriptionHi": "घुटने, हाथ, टखने, यूरिक एसिड या गठिया सूजन",
       "color": "purple",
       "questions": [
         {
           "id": "joint_site",
-          "dimension": "Site",
-          "questionEn": "Which joints are hurting?",
-          "questionHi": "किस जोड़ में दर्द है?",
+          "dimension": "Site (Affected Anatomical Joint)",
+          "questionEn": "Which specific joint or body part is painful or swollen?",
+          "questionHi": "किस जोड़ या शरीर के हिस्से में दर्द या सूजन है?",
           "options": [
-            { "labelEn": "Knees", "labelHi": "घुटनों में", "value": "knees" },
-            { "labelEn": "Hands / Fingers / Wrists", "labelHi": "हाथों या अंगुलियों में", "value": "hands_wrists" },
-            { "labelEn": "Hips / Back", "labelHi": "कमर या कूल्हे में", "value": "hips_back" },
-            { "labelEn": "Multiple joints all over", "labelHi": "शरीर के कई जोड़ों में", "value": "multiple" }
+            { "labelEn": "Both Knees (Bilateral Knee Joints)", "labelHi": "दोनों घुटने (Knees)", "value": "bilateral_knees", "anatomicalPart": "Bilateral Knee Joints" },
+            { "labelEn": "Hands, Fingers & Wrists", "labelHi": "हाथ, उंगलियां और कलाई (Hands & Wrists)", "value": "hands_wrists", "anatomicalPart": "Hands, Wrists & Small Finger Joints" },
+            { "labelEn": "Ankles, Feet & Big Toe (Suspected Gout)", "labelHi": "टखने, पैर और पैर का अंगूठा (Ankles & Big Toe)", "value": "ankles_feet_toe", "anatomicalPart": "Ankles & 1st Metatarsophalangeal Joint (Big Toe)" },
+            { "labelEn": "Lower Back & Spine / Hips", "labelHi": "कमर, रीढ़ और कूल्हे (Lower Back & Hips)", "value": "lower_back_hips", "anatomicalPart": "Lumbar Spine & Hip Joints" },
+            { "labelEn": "Shoulders & Neck", "labelHi": "कंधा और गर्दन (Shoulders & Cervical)", "value": "shoulders_neck", "anatomicalPart": "Glenohumeral & Cervical Joints" },
+            { "labelEn": "Multiple Generalized Joints all over body", "labelHi": "पूरे शरीर के कई जोड़ों में दर्द (Polyarthralgia)", "value": "multiple_polyarthritis", "anatomicalPart": "Multiple Peripheral Joints (Polyarthralgia)" }
           ]
         },
         {
-          "id": "joint_character",
-          "dimension": "Character",
-          "questionEn": "Do you have swelling or morning stiffness?",
-          "questionHi": "क्या सूजन या सुबह जकड़न महसूस होती है?",
+          "id": "joint_swelling_character",
+          "dimension": "Swelling & Quality",
+          "questionEn": "Is there visible swelling, warmth, or morning stiffness in the joint?",
+          "questionHi": "क्या जोड़ में दिखाई देने वाली सूजन, गर्माहट या सुबह की जकड़न है?",
           "options": [
-            { "labelEn": "Morning stiffness (> 30 mins)", "labelHi": "सुबह उठने पर 30 मिनट से अधिक जकड़न", "value": "morning_stiffness" },
-            { "labelEn": "Visible swelling & redness", "labelHi": "दिखने वाली सूजन और लालिमा", "value": "swelling_redness" },
-            { "labelEn": "Pain mainly while walking/standing", "labelHi": "चलने-फिरने पर दर्द होना", "value": "pain_on_movement" }
+            { "labelEn": "Visible warm swelling with redness & fluid accumulation", "labelHi": "दिखाई देने वाली गर्म सूजन और लालिमा (Fluid Swelling)", "value": "swelling_warmth_effusion" },
+            { "labelEn": "Severe morning stiffness lasting more than 30 - 45 minutes", "labelHi": "सुबह उठने पर 30-45 मिनट से अधिक जकड़न (Morning Stiffness)", "value": "morning_stiffness_prolonged" },
+            { "labelEn": "Pain & crepitus (cracking/grating sound) mainly while walking or stairs", "labelHi": "चलने या सीढ़ियां चढ़ने पर कट-कट की आवाज व दर्द (Crepitus)", "value": "crepitus_weight_bearing" },
+            { "labelEn": "Sudden severe burning throbbing pain (woke up in night)", "labelHi": "अचानक रात में उठा तेज टीस मारने वाला दर्द (Acute Gouty Flare)", "value": "sudden_nocturnal_flare" }
           ]
         },
         {
           "id": "joint_exacerbating",
           "dimension": "Exacerbating / Relieving",
-          "questionEn": "What makes the pain better or worse?",
-          "questionHi": "दर्द किस चीज से बढ़ता या घटता है?",
+          "questionEn": "What triggers or relieves your joint discomfort?",
+          "questionHi": "दर्द और सूजन किस बात से बढ़ती या घटती है?",
           "options": [
-            { "labelEn": "Worse with cold weather / Rest", "labelHi": "ठंड या आराम करने पर बढ़ता है", "value": "worse_cold_rest" },
-            { "labelEn": "Worse with stairs / Heavy activity", "labelHi": "सीढ़ियां चढ़ने या काम पर बढ़ता है", "value": "worse_activity" },
-            { "labelEn": "Better after applying warm compress", "labelHi": "गरम सेंक से आराम मिलता है", "value": "better_heat" }
+            { "labelEn": "Worse with weight-bearing, walking, or stairs; relieved by rest", "labelHi": "चलने, खड़े रहने या सीढ़ियों पर बढ़ता है; आराम से राहत", "value": "worse_walking_stairs" },
+            { "labelEn": "Worse in early morning or cold weather; improves with movement", "labelHi": "सुबह के वक्त या ठंड में बढ़ता है; हिलने-डुलने से कम होता है", "value": "worse_morning_cold" },
+            { "labelEn": "Better after applying warm compress or topical pain gel", "labelHi": "गरम सेंक या दर्द निवारक जेल लगाने से राहत मिलती है", "value": "better_heat_fomentation" },
+            { "labelEn": "Worsens after high protein/dal/purine diet", "labelHi": "दाल, मांसाहार या प्रोटीन लेने के बाद बढ़ता है (Uric Acid Trigger)", "value": "purine_diet_trigger" }
           ]
         },
         {
           "id": "joint_associations",
-          "dimension": "Associations",
-          "questionEn": "Do you have any other weakness?",
-          "questionHi": "क्या आपको कोई अन्य कमजोरी भी है?",
+          "dimension": "Associations & Red Flags",
+          "questionEn": "Do you have any of these related conditions or fever?",
+          "questionHi": "क्या साथ में बुखार, यूरिक एसिड या पैर न रख पाने की समस्या है?",
           "options": [
-            { "labelEn": "Fever with joint swelling", "labelHi": "जोड़ों की सूजन के साथ बुखार", "value": "fever" },
-            { "labelEn": "Sudden one-sided arm/face paralysis", "labelHi": "अचानक एक तरफ पक्षाघात या सुन्नपन", "value": "paralysis_numbness", "isRedFlag": true },
-            { "labelEn": "No other symptoms", "labelHi": "कोई और लक्षण नहीं", "value": "none" }
+            { "labelEn": "Known history of Elevated Uric Acid / Kidney stones / Gout", "labelHi": "यूरिक एसिड बढ़ने या पथरी की पुरानी समस्या", "value": "history_uric_acid_gout" },
+            { "labelEn": "Hot, red swollen joint with high fever & chills (Septic Joint Risk)", "labelHi": "जोड़ की सूजन के साथ तेज बुखार व ठंड (सेप्टिक आर्थराइटिस खतरा)", "value": "hot_swollen_fever", "isRedFlag": true },
+            { "labelEn": "Complete inability to bear weight / Sudden locked knee joint", "labelHi": "पैर पर बिल्कुल वजन न दे पाना या जोड़ लॉक हो जाना", "value": "inability_weight_bearing" },
+            { "labelEn": "None of the above", "labelHi": "इनमें से कोई नहीं", "value": "none" }
           ]
         }
       ]

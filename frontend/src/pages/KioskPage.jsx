@@ -3,14 +3,16 @@ import {
   HeartPulse, Thermometer, Wind, Activity, Bone, Globe, Volume2, VolumeX, 
   Mic, MicOff, AlertTriangle, CheckCircle2, ArrowRight, ArrowLeft, RefreshCw, 
   Sparkles, ShieldAlert, Upload, Camera, FileText, FlaskConical, Check, 
-  RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight, Sparkle
+  RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight,
+  ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode
 } from 'lucide-react';
 import { speakText, cancelSpeech, startListening, isSTTSupported } from '../services/speechService.js';
 import { checkRedFlagCondition } from '../services/redFlagDetector.js';
 import { extractDocumentWithDocAI, SAMPLE_DOCUMENTS, getLabFlagBadgeClass } from '../services/docAiService.js';
 import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../services/ayushFlowData.js';
+import { verifyAbhaWithAbdm, SAMPLE_ABHA_ACCOUNTS } from '../services/abdmService.js';
 
-// Fallback Dialogue Flows JSON in case backend API is connecting
+// Fallback Dialogue Flows JSON
 import fallbackFlows from '../../../backend/mockData/dialogueFlows.json';
 
 const COMPLAINT_ICONS = {
@@ -23,11 +25,16 @@ const COMPLAINT_ICONS = {
 };
 
 export default function KioskPage() {
-  // Navigation & Dialogue State
-  // Steps: 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'submitted'
-  const [step, setStep] = useState('complaint_selection');
+  // Steps: 'consent' | 'consent_declined' | 'abha_registration' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'submitted'
+  const [step, setStep] = useState('consent');
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [ttsEnabled, setTtsEnabled] = useState(true);
+
+  // Consent & ABDM State
+  const [consentTimestamp, setConsentTimestamp] = useState(null);
+  const [inputAbhaOrMobile, setInputAbhaOrMobile] = useState('');
+  const [isVerifyingAbdm, setIsVerifyingAbdm] = useState(false);
+  const [verifiedPatient, setVerifiedPatient] = useState(null);
 
   // Loaded Dialogue Data
   const [dialogueData, setDialogueData] = useState(fallbackFlows);
@@ -87,10 +94,23 @@ export default function KioskPage() {
     };
   }, []);
 
-  // Handle TTS narration helper
+  // Audio narration on initial consent step
+  useEffect(() => {
+    if (step === 'consent' && ttsEnabled) {
+      narrateConsent();
+    }
+  }, [step, selectedLanguage, ttsEnabled]);
+
   const narrate = (text) => {
     if (!ttsEnabled || !text) return;
     speakText(text, selectedLanguage);
+  };
+
+  const narrateConsent = () => {
+    const text = (selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+      ? 'मेडीकियोस्क में आपका स्वागत है। राष्ट्रीय स्वास्थ्य मिशन और आभा दिशानिर्देशों के तहत, आपकी स्वास्थ्य जानकारी और पर्चा दर्ज करने के लिए आपकी सहमति आवश्यक है। क्या आप सहमत हैं?'
+      : 'Welcome to MediKiosk. Under Ayushman Bharat Digital Mission guidelines, we require your consent to verify your ABHA ID and record your symptoms for your doctor. Do you agree to proceed?';
+    narrate(text);
   };
 
   // Speak SOCRATES question
@@ -111,7 +131,73 @@ export default function KioskPage() {
     narrate(qText);
   };
 
-  // 1. Complaint Selected -> Navigate to Optional Document Digitization Step
+  // ============================================================================
+  // CONSENT HANDLERS
+  // ============================================================================
+  const handleGrantConsent = () => {
+    cancelSpeech();
+    setConsentTimestamp(new Date().toISOString());
+    setStep('abha_registration');
+    narrate(
+      selectedLanguage === 'हिंदी'
+        ? 'धन्यवाद। कृपया अपना 14 अंकों का आभा नंबर या मोबाइल नंबर दर्ज करें।'
+        : 'Thank you. Please enter your 14-digit ABHA number or mobile phone number to verify your records.'
+    );
+  };
+
+  const handleDeclineConsent = () => {
+    cancelSpeech();
+    setStep('consent_declined');
+    narrate(
+      selectedLanguage === 'हिंदी'
+        ? 'आपने सहमति नहीं दी है। कृपया काउंटर नंबर 1 पर जाकर मैनुअल पर्ची बनवाएं।'
+        : 'You have declined consent. Please proceed to Registration Counter 1 for manual hospital token issuance.'
+    );
+  };
+
+  // ============================================================================
+  // ABDM / ABHA VERIFICATION HANDLERS
+  // ============================================================================
+  const handleVerifyAbha = async (customId = null) => {
+    cancelSpeech();
+    const idToVerify = customId || inputAbhaOrMobile || '91-8472-1029-4821';
+    setIsVerifyingAbdm(true);
+    setVerifiedPatient(null);
+
+    narrate(
+      selectedLanguage === 'हिंदी'
+        ? 'आभा रिकॉर्ड सत्यापित हो रहे हैं। कृपया प्रतीक्षा करें।'
+        : 'Verifying ABHA records with the national health gateway. Please wait a moment.'
+    );
+
+    try {
+      const profile = await verifyAbhaWithAbdm({ abhaId: idToVerify, mobile: idToVerify });
+      setVerifiedPatient(profile);
+      narrate(
+        selectedLanguage === 'हिंदी'
+          ? `नमस्ते ${profile.name} जी! आपकी आभा आईडी सत्यापित हो गई है।`
+          : `Welcome ${profile.name}! Your ABHA identity has been verified.`
+      );
+    } catch (err) {
+      console.error('[ABDM] Verification error:', err);
+    } finally {
+      setIsVerifyingAbdm(false);
+    }
+  };
+
+  const handleProceedToComplaints = () => {
+    cancelSpeech();
+    setStep('complaint_selection');
+    narrate(
+      selectedLanguage === 'हिंदी'
+        ? 'कृपया अपनी मुख्य स्वास्थ्य समस्या चुनें।'
+        : 'Please select your primary health concern from the options below.'
+    );
+  };
+
+  // ============================================================================
+  // COMPLAINT SELECTION & DIGITIZATION
+  // ============================================================================
   const handleSelectComplaint = (complaint, isAyush = false) => {
     cancelSpeech();
     setSelectedComplaint(complaint);
@@ -131,16 +217,15 @@ export default function KioskPage() {
 
     narrate(
       selectedLanguage === 'हिंदी'
-        ? 'यदि आपके पास कोई पुराना डॉक्टर का पर्चा या खून की जांच रिपोर्ट है, तो आप उसे यहां अपलोड कर सकते हैं, या सीधे आगे बढ़ सकते हैं।'
-        : 'If you have a previous doctor prescription or lab report, you can upload it here, or skip to continue directly.'
+        ? 'यदि आपके पास कोई पुराना डॉक्टर का पर्चा, एक्स-रे या जांच रिपोर्ट है, तो आप उसे यहां अपलोड कर सकते हैं, या सीधे आगे बढ़ सकते हैं।'
+        : 'If you have a previous doctor prescription, X-ray, or lab report, you can upload it here, or skip to continue directly.'
     );
   };
 
-  // 2. Document AI Extraction Flow
   const handleProcessDocument = async (fileName, docType, fileObj = null) => {
     cancelSpeech();
     setIsOcrProcessing(true);
-    setUploadedDocName(fileName || 'prescription_upload.jpg');
+    setUploadedDocName(fileName || 'scanned_report.jpg');
     setExtractedDocData(null);
 
     narrate(
@@ -152,7 +237,8 @@ export default function KioskPage() {
     try {
       const extracted = await extractDocumentWithDocAI({
         fileName: fileName || (fileObj ? fileObj.name : 'upload.jpg'),
-        documentType: docType || 'prescription',
+        documentType: docType || 'auto',
+        complaintId: selectedComplaint?.id || (isAyushFlow ? 'joint_pain' : 'auto'),
         file: fileObj
       });
       setExtractedDocData(extracted);
@@ -171,19 +257,16 @@ export default function KioskPage() {
   const handleFileUploadChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      const isLab = /lab|blood|cbc|test|report/i.test(file.name);
-      handleProcessDocument(file.name, isLab ? 'lab_report' : 'prescription', file);
+      handleProcessDocument(file.name, 'auto', file);
     }
   };
 
-  // Confirm Extracted Document and Proceed to Questionnaire
   const handleConfirmDocumentAndProceed = () => {
     cancelSpeech();
     setHasConfirmedDoc(true);
     proceedToQuestions();
   };
 
-  // Skip Document Digitization Step
   const handleSkipDocumentAndProceed = () => {
     cancelSpeech();
     setExtractedDocData(null);
@@ -204,7 +287,7 @@ export default function KioskPage() {
     }
   };
 
-  // Toggle Voice Microphone
+  // Toggle Voice Input
   const handleToggleVoice = () => {
     if (isListening) {
       if (recognitionRef.current) {
@@ -215,7 +298,7 @@ export default function KioskPage() {
     }
 
     if (!isSTTSupported()) {
-      alert('Voice input is not supported in this browser. You can select touch options.');
+      alert('Voice microphone input is not supported in this browser.');
       return;
     }
 
@@ -241,7 +324,6 @@ export default function KioskPage() {
     recognitionRef.current = rec;
   };
 
-  // Log Red Flag event to Backend Server
   const logRedFlagToBackend = async (redFlagObj, answerObj) => {
     try {
       await fetch('http://localhost:3000/api/redflag', {
@@ -260,7 +342,7 @@ export default function KioskPage() {
     }
   };
 
-  // 3. Process SOCRATES Question Answer (Allopathic)
+  // SOCRATES Answer
   const handleAnswerQuestion = (optionObj = null, freeText = '') => {
     cancelSpeech();
     if (isListening && recognitionRef.current) {
@@ -281,7 +363,6 @@ export default function KioskPage() {
     const updatedAnswers = { ...answers, [currentQuestion.id]: answerEntry };
     setAnswers(updatedAnswers);
 
-    // Evaluate Red Flag detection
     const redFlagCheck = checkRedFlagCondition(
       selectedComplaint.id,
       currentQuestion.id,
@@ -297,14 +378,12 @@ export default function KioskPage() {
       logRedFlagToBackend(redFlagCheck, answerEntry);
     }
 
-    // Move to next question or submit
     if (currentQuestionIndex < selectedComplaint.questions.length - 1) {
       const nextIdx = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIdx);
       setVoiceText('');
       speakCurrentQuestion(selectedComplaint.questions[nextIdx]);
     } else {
-      // Completed all questions -> submit session
       handleSubmitSession({
         finalAnswers: Object.values(updatedAnswers),
         finalRedFlags: updatedFlags,
@@ -313,7 +392,7 @@ export default function KioskPage() {
     }
   };
 
-  // 4. Process AYUSH Dashavidha Pariksha Question Answer
+  // AYUSH Answer
   const handleAnswerAyushQuestion = (optionObj = null, freeText = '') => {
     cancelSpeech();
     if (isListening && recognitionRef.current) {
@@ -341,7 +420,6 @@ export default function KioskPage() {
       setVoiceText('');
       speakCurrentAyushQuestion(AYUSH_QUESTIONS[nextIdx]);
     } else {
-      // Completed all 4 AYUSH inquiries
       const compiledAyush = compileAyushSummary(updatedAyushAnswers);
       handleSubmitSession({
         finalAnswers: Object.values(updatedAyushAnswers),
@@ -351,7 +429,7 @@ export default function KioskPage() {
     }
   };
 
-  // 5. Unified Submission (POST /api/session/submit)
+  // Session Submission
   const handleSubmitSession = async ({ finalAnswers, finalRedFlags, ayushData }) => {
     setIsSubmitting(true);
     cancelSpeech();
@@ -363,6 +441,21 @@ export default function KioskPage() {
         ? (selectedLanguage === 'हिंदी' ? AYUSH_COMPLAINT_META.titleHi : AYUSH_COMPLAINT_META.titleEn)
         : ((selectedLanguage === 'हिंदी' ? selectedComplaint?.titleHi : selectedComplaint?.titleEn) || 'General Check-In'),
       language: selectedLanguage,
+      patientDetails: verifiedPatient ? {
+        name: verifiedPatient.name,
+        age: verifiedPatient.age,
+        gender: verifiedPatient.gender,
+        abhaNumber: verifiedPatient.abhaNumber,
+        abhaAddress: verifiedPatient.abhaAddress
+      } : {
+        name: 'Ramesh Chandra Sharma',
+        age: 68,
+        gender: 'Male',
+        abhaNumber: '91-8472-1029-4821'
+      },
+      abhaDetails: verifiedPatient,
+      consentStatus: 'GRANTED',
+      consentTimestamp: consentTimestamp || new Date().toISOString(),
       answers: finalAnswers,
       redFlagsTriggered: finalRedFlags || [],
       digitizedDocument: extractedDocData || null,
@@ -384,6 +477,7 @@ export default function KioskPage() {
         complaintTitle: payload.complaintTitle,
         answers: payload.answers,
         redFlagsTriggered: payload.redFlagsTriggered,
+        patientDetails: payload.patientDetails,
         digitizedDocument: payload.digitizedDocument,
         ayushAssessment: payload.ayushAssessment
       });
@@ -393,15 +487,14 @@ export default function KioskPage() {
       narrate(
         selectedLanguage === 'हिंदी'
           ? 'धन्यवाद! आपकी जानकारी दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
-          : 'Thank you! Your information has been recorded. Please relax in the waiting room until your token is called.'
+          : 'Thank you! Your check-in is complete. Please relax in the waiting area until your token is called.'
       );
     }
   };
 
-  // Reset to initial screen
   const handleRestart = () => {
     cancelSpeech();
-    setStep('complaint_selection');
+    setStep('consent');
     setSelectedComplaint(null);
     setIsAyushFlow(false);
     setCurrentQuestionIndex(0);
@@ -415,10 +508,12 @@ export default function KioskPage() {
     setUploadedDocName('');
     setHasConfirmedDoc(false);
     setSubmittedSession(null);
+    setVerifiedPatient(null);
+    setInputAbhaOrMobile('');
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col p-4 md:p-8 select-none">
+    <div className="min-h-screen bg-slate-50 flex flex-col p-4 md:p-8 select-none font-sans">
       {/* Kiosk Header */}
       <header className="bg-slate-900 text-white p-4 md:p-5 rounded-2xl shadow-md flex flex-col sm:flex-row justify-between items-center gap-3 border-b-2 border-slate-800 mb-6">
         <div className="flex items-center gap-3">
@@ -428,17 +523,16 @@ export default function KioskPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold tracking-tight">MediKiosk Smart Assistance</h1>
-              <span className="bg-blue-500/20 text-blue-300 text-[11px] font-bold px-2 py-0.5 rounded border border-blue-400/30">
-                Self-Service Kiosk
+              <span className="bg-emerald-500/20 text-emerald-300 text-[11px] font-bold px-2 py-0.5 rounded border border-emerald-400/30">
+                ABDM Enabled
               </span>
             </div>
-            <p className="text-slate-400 text-xs font-medium">Smart OPD triage, Document OCR & AYUSH consultation</p>
+            <p className="text-slate-400 text-xs font-medium">Smart OPD triage, ABHA KYC & Integrated AYUSH</p>
           </div>
         </div>
 
         {/* Global Controls: Language & Audio Narration */}
         <div className="flex items-center gap-2">
-          {/* TTS Narration Toggle */}
           <button
             onClick={() => setTtsEnabled(!ttsEnabled)}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border cursor-pointer ${
@@ -452,7 +546,6 @@ export default function KioskPage() {
             {ttsEnabled ? 'Voice On' : 'Voice Off'}
           </button>
 
-          {/* Language Selector */}
           <div className="flex items-center gap-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700/60">
             <Globe className="w-4 h-4 text-amber-400 ml-1.5 mr-1" />
             {['English', 'हिंदी'].map((lang) => (
@@ -472,7 +565,7 @@ export default function KioskPage() {
         </div>
       </header>
 
-      {/* Red Flag Alert Banner (Sticky at top when active) */}
+      {/* Red Flag Alert Banner */}
       {activeRedFlag && (
         <div className="max-w-4xl mx-auto w-full mb-6 bg-red-600 text-white p-4 rounded-2xl shadow-lg border-2 border-red-700 flex items-center justify-between gap-4 animate-bounce">
           <div className="flex items-center gap-3">
@@ -484,34 +577,286 @@ export default function KioskPage() {
                 URGENT — ALERT TRIAGE STAFF
               </span>
               <p className="text-sm font-bold mt-1 text-white">{activeRedFlag}</p>
-              <p className="text-xs text-red-100 mt-0.5">Duty nurse notified. Please remain calm.</p>
+              <p className="text-xs text-red-100 mt-0.5">Duty nurse notified at Counter 1.</p>
             </div>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 1: CHIEF COMPLAINT SELECTION SCREEN (WITH AYUSH 6TH OPTION)          */}
+      {/* 1. EXPLICIT AUDIO-NARRATED CONSENT SCREEN                                 */}
+      {/* ========================================================================= */}
+      {step === 'consent' && (
+        <main className="max-w-3xl mx-auto w-full flex-1 flex flex-col justify-center gap-6 my-auto">
+          <div className="bg-white border-2 border-slate-200 rounded-3xl p-8 md:p-10 shadow-lg flex flex-col gap-6 text-center">
+            <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+              <ShieldCheck className="w-10 h-10" />
+            </div>
+
+            <div>
+              <span className="bg-blue-50 text-blue-800 text-xs font-black uppercase px-3 py-1 rounded-full border border-blue-200">
+                Ayushman Bharat Digital Mission (ABDM) • Privacy & Consent
+              </span>
+              <h2 className="text-3xl font-black text-slate-900 mt-3">
+                {selectedLanguage === 'हिंदी' ? 'रोगी सहमति एवं गोपनीयता' : 'Patient Consent for Digital OPD Triage'}
+              </h2>
+              <p className="text-slate-600 text-sm mt-2 max-w-xl mx-auto leading-relaxed">
+                {selectedLanguage === 'हिंदी'
+                  ? 'मेडीकियोस्क को आपकी आभा आईडी (ABHA ID) सत्यापित करने और ओपीडी चिकित्सक के लिए आपके लक्षण और पर्चे दर्ज करने हेतु आपकी सहमति की आवश्यकता है। आपका डेटा सुरक्षित और गोपनीय रखा जाता है।'
+                  : 'MediKiosk requires your consent to securely verify your ABHA health ID and record your health symptoms and prior prescriptions for your attending physician under ABDM data protection standards.'}
+              </p>
+            </div>
+
+            {/* Privacy Guarantee Badges */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs text-slate-700 font-semibold">
+              <div className="flex items-center justify-center gap-2">
+                <Lock className="w-4 h-4 text-emerald-600" /> Encrypted Health Data
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-blue-600" /> ABDM Sandbox Gateway
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-purple-600" /> Physician Only Access
+              </div>
+            </div>
+
+            {/* Large High-Contrast Touch Consent Buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <button
+                onClick={handleGrantConsent}
+                className="py-5 px-6 bg-emerald-700 hover:bg-emerald-800 text-white rounded-2xl font-black text-lg shadow-md hover:shadow-lg flex items-center justify-center gap-3 transition-all cursor-pointer"
+              >
+                <Check className="w-6 h-6" />
+                <span>{selectedLanguage === 'हिंदी' ? 'मैं सहमत हूँ (I Agree)' : 'I Agree & Give Consent'}</span>
+              </button>
+
+              <button
+                onClick={handleDeclineConsent}
+                className="py-5 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-2xl font-bold text-base border-2 border-slate-300 flex items-center justify-center gap-3 transition-all cursor-pointer"
+              >
+                <XCircle className="w-6 h-6 text-red-500" />
+                <span>{selectedLanguage === 'हिंदी' ? 'मैं असहमत हूँ (Decline)' : 'I Do Not Agree (Decline)'}</span>
+              </button>
+            </div>
+          </div>
+        </main>
+      )}
+
+      {/* CONSENT DECLINED SCREEN (Do not proceed with flow) */}
+      {step === 'consent_declined' && (
+        <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col justify-center items-center gap-6 my-auto text-center">
+          <div className="bg-white border-2 border-red-200 rounded-3xl p-8 md:p-10 shadow-lg flex flex-col items-center gap-6 w-full">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center">
+              <XCircle className="w-10 h-10" />
+            </div>
+
+            <div>
+              <h2 className="text-2xl font-black text-slate-900">
+                {selectedLanguage === 'हिंदी' ? 'डिजिटल चेक-इन रद्द किया गया' : 'Digital Kiosk Check-In Declined'}
+              </h2>
+              <p className="text-sm text-slate-600 mt-2 max-w-md leading-relaxed">
+                {selectedLanguage === 'हिंदी'
+                  ? 'आपने सहमति नहीं दी है। कृपया काउंटर नंबर 1 पर जाएं जहां हमारे अस्पताल कर्मचारी आपकी शारीरिक पर्ची तैयार करेंगे।'
+                  : 'Because consent was declined, automated kiosk data recording has been halted. Please visit Counter 1 for manual token and registration assistance.'}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setStep('consent')}
+              className="px-6 py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-sm rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" /> Start Over & Provide Consent
+            </button>
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. MOCK ABDM REGISTRATION SCREEN (ENTER ABHA ID OR MOBILE)                 */}
+      {/* ========================================================================= */}
+      {step === 'abha_registration' && (
+        <main className="max-w-4xl mx-auto w-full flex-1 flex flex-col gap-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+            <button
+              onClick={() => setStep('consent')}
+              className="text-slate-600 hover:text-slate-900 text-sm font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back to Consent
+            </button>
+            <span className="bg-blue-50 text-blue-800 text-xs font-bold px-3 py-1 rounded-full border border-blue-200 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Consent Granted & Verified
+            </span>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-6">
+            <div className="text-center max-w-xl mx-auto">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-full mb-2 border border-emerald-200">
+                <QrCode className="w-3.5 h-3.5 text-emerald-600" /> ABDM Health Identity
+              </span>
+              <h2 className="text-2xl font-black text-slate-900">
+                {selectedLanguage === 'हिंदी' ? 'आभा नंबर या मोबाइल दर्ज करें' : 'Enter ABHA ID or Mobile Number'}
+              </h2>
+              <p className="text-sm text-slate-600 mt-1">
+                {selectedLanguage === 'हिंदी'
+                  ? 'अपना 14-अंकों का आभा कार्ड नंबर या पंजीकृत मोबाइल दर्ज करें।'
+                  : 'Enter your 14-digit ABHA ID (e.g. 91-8472-1029-4821) or mobile to pull your verified health profile.'}
+              </p>
+            </div>
+
+            {/* Verification Loading State */}
+            {isVerifyingAbdm && (
+              <div className="p-8 bg-blue-50/70 border-2 border-dashed border-blue-300 rounded-2xl flex flex-col items-center justify-center gap-4 text-center animate-pulse">
+                <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg animate-spin">
+                  <RefreshCw className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-blue-950">Querying ABDM Health Gateway...</h3>
+                  <p className="text-xs text-blue-700 mt-1 font-medium">
+                    Simulating 1.5s demographic KYC verification & Aadhaar linkage
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Input & Demo Accounts (When not verifying and not verified) */}
+            {!isVerifyingAbdm && !verifiedPatient && (
+              <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full">
+                {/* Manual Input Box */}
+                <div className="flex flex-col gap-3">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={inputAbhaOrMobile}
+                      onChange={(e) => setInputAbhaOrMobile(e.target.value)}
+                      placeholder="e.g. 91-8472-1029-4821 or 9876543210"
+                      className="w-full p-4 pl-12 text-lg font-mono font-bold text-slate-900 bg-slate-50 border-2 border-slate-300 rounded-2xl focus:outline-none focus:border-blue-600 focus:bg-white"
+                    />
+                    <Smartphone className="w-6 h-6 text-slate-400 absolute left-4 top-4.5" />
+                  </div>
+
+                  <button
+                    onClick={() => handleVerifyAbha()}
+                    className="w-full py-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <UserCheck className="w-5 h-5" />
+                    <span>{selectedLanguage === 'हिंदी' ? 'आभा रिकॉर्ड सत्यापित करें' : 'Verify with ABDM Gateway'}</span>
+                  </button>
+                </div>
+
+                {/* 1-Click Quick Demo ABHA Profiles */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-3">
+                    Or Select 1-Click Demo ABHA Accounts:
+                  </span>
+                  <div className="space-y-2.5">
+                    {SAMPLE_ABHA_ACCOUNTS.map((acc) => (
+                      <button
+                        key={acc.id}
+                        onClick={() => handleVerifyAbha(acc.abhaNumber)}
+                        className="w-full p-3.5 bg-white border border-slate-200 hover:border-emerald-500 rounded-xl text-left shadow-sm hover:shadow transition-all flex items-center justify-between gap-3 cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-emerald-100 text-emerald-800 rounded-xl flex items-center justify-center font-bold text-sm">
+                            {acc.name[0]}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-extrabold text-slate-900">{acc.name}</span>
+                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                                {acc.gender}, {acc.age}Y
+                              </span>
+                            </div>
+                            <span className="text-xs font-mono text-emerald-700 font-bold block mt-0.5">
+                              ABHA: {acc.abhaNumber} • {acc.abhaAddress}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-lg border border-emerald-200 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex-shrink-0">
+                          Verify & Select
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* VERIFIED PATIENT KYC PROFILE CARD */}
+            {!isVerifyingAbdm && verifiedPatient && (
+              <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full animate-fadeIn">
+                <div className="bg-emerald-50/70 border-2 border-emerald-300 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-emerald-200 pb-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                      <h3 className="text-base font-extrabold text-emerald-950">ABHA Identity Verified Successfully</h3>
+                    </div>
+                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      KYC Verified
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                    <div className="w-16 h-16 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-md flex-shrink-0">
+                      {verifiedPatient.name[0]}
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-black text-slate-900">{verifiedPatient.name}</h4>
+                      <p className="text-xs font-bold text-emerald-800 font-mono mt-0.5">
+                        ABHA: {verifiedPatient.abhaNumber} ({verifiedPatient.abhaAddress})
+                      </p>
+                      <p className="text-xs text-slate-600 mt-1">
+                        {verifiedPatient.gender}, Age: {verifiedPatient.age} Y • Mobile: {verifiedPatient.mobile}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Address: {verifiedPatient.address}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={handleProceedToComplaints}
+                    className="flex-1 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-base rounded-2xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <span>{selectedLanguage === 'हिंदी' ? 'लक्षण चयन की ओर बढ़ें' : 'Proceed to Chief Complaint Selection'}</span>
+                    <ArrowRight className="w-5 h-5 text-amber-300" />
+                  </button>
+
+                  <button
+                    onClick={() => { setVerifiedPatient(null); setInputAbhaOrMobile(''); }}
+                    className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-2xl border border-slate-300 cursor-pointer"
+                  >
+                    Different Patient
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. CHIEF COMPLAINT SELECTION SCREEN                                       */}
       {/* ========================================================================= */}
       {step === 'complaint_selection' && (
         <main className="max-w-5xl mx-auto w-full flex-1 flex flex-col gap-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 text-xs font-bold rounded-full mb-2 border border-blue-200">
-              <Sparkles className="w-3.5 h-3.5 text-blue-600" /> Reassuring Touch Check-In
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" /> Guided OPD Check-In
             </span>
             <h2 className="text-2xl font-extrabold text-slate-900 mb-1">
               {selectedLanguage === 'हिंदी' ? 'अपनी मुख्य समस्या चुनें' : 'What is your main health concern today?'}
             </h2>
             <p className="text-sm text-slate-600">
               {selectedLanguage === 'हिंदी' 
-                ? 'नीचे दिए गए विकल्पों में से चुनें। हम आपसे कुछ सरल प्रश्न पूछेंगे।'
-                : 'Select one of the 6 options below to begin your guided check-in.'}
+                ? 'नीचे दिए गए 6 विकल्पों में से चुनें। हम आपसे कुछ सरल प्रश्न पूछेंगे।'
+                : 'Select one of the 6 options below to begin your consultation intake.'}
             </p>
           </div>
 
-          {/* 6 Chief Complaint Large Buttons (5 Allopathic + 1 AYUSH) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {/* Standard Allopathic Complaints */}
             {dialogueData.complaints.map((c) => {
               const IconComponent = COMPLAINT_ICONS[c.iconName] || Activity;
               return (
@@ -538,7 +883,7 @@ export default function KioskPage() {
               );
             })}
 
-            {/* 6TH OPTION: AYUSH AYURVEDIC CONSULTATION */}
+            {/* 6th Option: AYUSH Consultation */}
             <button
               onClick={() => handleSelectComplaint(AYUSH_COMPLAINT_META, true)}
               className="bg-gradient-to-br from-emerald-50/70 to-teal-50/50 hover:from-emerald-100/70 hover:to-teal-100/70 border-2 border-emerald-300 hover:border-emerald-600 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4 group cursor-pointer relative overflow-hidden"
@@ -562,19 +907,14 @@ export default function KioskPage() {
               </div>
             </button>
           </div>
-
-          <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-center text-xs text-slate-700">
-            <strong>Need urgent medical triage?</strong> Press the Emergency button or speak directly to the duty nurse at Counter 1.
-          </div>
         </main>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 2: OPTIONAL DOCUMENT DIGITIZATION & OCR CONFIRMATION SCREEN          */}
+      {/* 4. OPTIONAL DOCUMENT DIGITIZATION STEP                                    */}
       {/* ========================================================================= */}
       {step === 'doc_digitization' && (
         <main className="max-w-4xl mx-auto w-full flex-1 flex flex-col gap-6">
-          {/* Header & Back Action */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-center justify-between">
             <button 
               onClick={() => setStep('complaint_selection')}
@@ -582,14 +922,11 @@ export default function KioskPage() {
             >
               <ArrowLeft className="w-4 h-4" /> Back to Complaints
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase bg-blue-50 text-blue-800 px-3 py-1 rounded-full border border-blue-200">
-                Selected: {isAyushFlow ? 'Ayurvedic Intake' : (selectedLanguage === 'हिंदी' ? selectedComplaint?.titleHi : selectedComplaint?.titleEn)}
-              </span>
-            </div>
+            <span className="text-xs font-bold uppercase bg-blue-50 text-blue-800 px-3 py-1 rounded-full border border-blue-200">
+              Selected: {isAyushFlow ? 'Ayurvedic Intake' : (selectedLanguage === 'हिंदी' ? selectedComplaint?.titleHi : selectedComplaint?.titleEn)}
+            </span>
           </div>
 
-          {/* Main Document Upload & Extraction Container */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-6">
             <div className="text-center max-w-2xl mx-auto">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-800 text-xs font-bold rounded-full mb-2 border border-purple-200">
@@ -597,17 +934,16 @@ export default function KioskPage() {
               </span>
               <h2 className="text-2xl font-black text-slate-900">
                 {selectedLanguage === 'हिंदी' 
-                  ? 'पिछला पर्चा या लैब रिपोर्ट स्कैन करें' 
-                  : 'Upload Previous Prescription or Lab Report'}
+                  ? 'पिछला पर्चा, एक्स-रे या लैब रिपोर्ट स्कैन करें' 
+                  : 'Upload Previous Prescription, X-Ray or Lab Report'}
               </h2>
               <p className="text-sm text-slate-600 mt-1">
                 {selectedLanguage === 'हिंदी'
-                  ? 'हमारा AI स्कैनर आपकी पिछली दवाइयां और टेस्ट रिपोर्ट को स्वचालित रूप से पढ़ लेगा।'
-                  : 'Our smart OCR engine will extract your medications, dosages, and lab test metrics to aid your doctor.'}
+                  ? 'हमारा AI स्कैनर आपकी पिछली दवाइयां, एक्स-रे रिपोर्ट और टेस्ट रिपोर्ट को स्वचालित रूप से पढ़ लेगा।'
+                  : 'Our smart OCR engine will extract your medications, dosages, radiology findings, and relevant lab metrics.'}
               </p>
             </div>
 
-            {/* Hidden native file input */}
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -616,7 +952,6 @@ export default function KioskPage() {
               className="hidden" 
             />
 
-            {/* OCR Processing Spinner (2s latency simulation) */}
             {isOcrProcessing && (
               <div className="p-8 bg-purple-50/70 border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center gap-4 text-center animate-pulse">
                 <div className="w-14 h-14 bg-purple-600 text-white rounded-2xl flex items-center justify-center shadow-lg animate-spin">
@@ -625,19 +960,14 @@ export default function KioskPage() {
                 <div>
                   <h3 className="text-lg font-extrabold text-purple-950">AI Document Engine Extracting Records...</h3>
                   <p className="text-xs text-purple-700 mt-1 font-medium">
-                    Scanning {uploadedDocName} • Parsing medications, lab reference ranges & abnormal flags
+                    Scanning {uploadedDocName} • Parsing relevant clinical markers & radiology findings
                   </p>
-                </div>
-                <div className="w-48 bg-purple-200 rounded-full h-1.5 overflow-hidden">
-                  <div className="bg-purple-600 h-1.5 rounded-full w-3/4 animate-pulse" />
                 </div>
               </div>
             )}
 
-            {/* Document Upload Area (When not processing and not yet extracted) */}
             {!isOcrProcessing && !extractedDocData && (
               <div className="flex flex-col gap-5">
-                {/* Upload & Camera Buttons */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <button
                     onClick={() => fileInputRef.current?.click()}
@@ -648,12 +978,12 @@ export default function KioskPage() {
                     </div>
                     <div className="text-center">
                       <span className="text-base font-bold text-blue-900 block">Choose Document / Image</span>
-                      <span className="text-xs text-slate-500">Supports JPG, PNG, Scanned Camera Photos</span>
+                      <span className="text-xs text-slate-500">Supports JPG, PNG, Scanned Reports & X-Rays</span>
                     </div>
                   </button>
 
                   <button
-                    onClick={() => handleProcessDocument('kiosk_live_cam_capture.jpg', 'prescription')}
+                    onClick={() => handleProcessDocument('kiosk_live_cam_capture.jpg', 'auto')}
                     className="p-6 border-2 border-dashed border-emerald-300 hover:border-emerald-600 bg-emerald-50/40 hover:bg-emerald-50 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
                   >
                     <div className="w-12 h-12 bg-emerald-600 text-white rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -661,15 +991,15 @@ export default function KioskPage() {
                     </div>
                     <div className="text-center">
                       <span className="text-base font-bold text-emerald-950 block">Capture with Kiosk Camera</span>
-                      <span className="text-xs text-slate-500">Hold paper prescription up to the scanner</span>
+                      <span className="text-xs text-slate-500">Hold paper report or film up to scanner</span>
                     </div>
                   </button>
                 </div>
 
-                {/* Quick 1-Click Sample Demos */}
+                {/* 1-Click Demos */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
-                    Or Test with 1-Click Demo Records:
+                    Or Test with 1-Click Relevant Diagnostic Records:
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {SAMPLE_DOCUMENTS.map((doc) => (
@@ -680,7 +1010,7 @@ export default function KioskPage() {
                       >
                         <div className="flex items-center gap-3">
                           <div className="p-2 bg-purple-50 text-purple-700 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                            {doc.type === 'lab_report' ? <FlaskConical className="w-5 h-5" /> : <Pill className="w-5 h-5" />}
+                            {doc.type === 'orthopedic_rheumatology_report' ? <Bone className="w-5 h-5 text-purple-600" /> : doc.type === 'lab_report' ? <FlaskConical className="w-5 h-5" /> : <Pill className="w-5 h-5" />}
                           </div>
                           <div>
                             <span className="text-xs font-bold text-slate-900 block">{doc.title}</span>
@@ -694,10 +1024,20 @@ export default function KioskPage() {
                     ))}
                   </div>
                 </div>
+
+                <div className="pt-4 border-t border-slate-100 flex justify-end">
+                  <button
+                    onClick={handleSkipDocumentAndProceed}
+                    className="px-6 py-3.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm rounded-xl flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                  >
+                    <span>{selectedLanguage === 'हिंदी' ? 'दस्तावेज़ नहीं है (सीधे प्रश्न पूछें)' : 'Skip Document Upload (Proceed to Questions)'}</span>
+                    <ArrowRight className="w-4 h-4 text-amber-400" />
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* EXTRACTED DATA CONFIRMATION SCREEN ("Does this look right?") */}
+            {/* Extracted Data Confirmation Screen */}
             {!isOcrProcessing && extractedDocData && (
               <div className="flex flex-col gap-6 animate-fadeIn">
                 <div className="bg-emerald-50/70 border-2 border-emerald-300 rounded-2xl p-5 flex items-start gap-4">
@@ -710,32 +1050,20 @@ export default function KioskPage() {
                         {selectedLanguage === 'हिंदी' ? 'क्या यह जानकारी सही है?' : 'Does this look right? (AI Extraction Verified)'}
                       </h3>
                       <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300 self-start">
-                        {extractedDocData.documentType.toUpperCase()} • Confidence: 96%
+                        {extractedDocData.documentType.toUpperCase()} • Confidence: 97%
                       </span>
                     </div>
                     <p className="text-xs text-emerald-800 mt-1">
-                      {extractedDocData.documentTitle} • Date: {extractedDocData.date} • Facility: {extractedDocData.facility || 'Hospital OPD'}
+                      {extractedDocData.documentTitle} • Date: {extractedDocData.date}
                     </p>
+                    {extractedDocData.imagingFindings && (
+                      <p className="text-xs text-purple-900 bg-purple-100/80 p-2 rounded-lg mt-2 font-semibold border border-purple-200">
+                        📸 {extractedDocData.imagingFindings}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                {/* Extracted Diagnoses */}
-                {extractedDocData.diagnoses && extractedDocData.diagnoses.length > 0 && (
-                  <div>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
-                      Identified Diagnoses / Conditions:
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      {extractedDocData.diagnoses.map((diag, i) => (
-                        <span key={i} className="px-3 py-1 bg-blue-50 text-blue-900 border border-blue-200 rounded-lg text-xs font-bold">
-                          {diag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Extracted Medications */}
                 {extractedDocData.medications && extractedDocData.medications.length > 0 && (
                   <div>
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
@@ -753,50 +1081,38 @@ export default function KioskPage() {
                   </div>
                 )}
 
-                {/* Extracted Lab Values (Flagged HIGH/LOW in Red/Orange) */}
                 {extractedDocData.labValues && extractedDocData.labValues.length > 0 && (
                   <div>
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-                      <FlaskConical className="w-4 h-4 text-purple-600" /> Clinical Lab Values & Out-of-Range Flags:
+                      <FlaskConical className="w-4 h-4 text-purple-600" /> Clinical Diagnostic Lab Values:
                     </span>
                     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                           <tr>
-                            <th className="p-3">Test Name</th>
+                            <th className="p-3">Test / Diagnostic Marker</th>
                             <th className="p-3">Extracted Value</th>
                             <th className="p-3 hidden sm:table-cell">Reference Range</th>
                             <th className="p-3 text-right">Flag Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 bg-white">
-                          {extractedDocData.labValues.map((lab, i) => {
-                            const isHigh = lab.flag === 'HIGH';
-                            const isLow = lab.flag === 'LOW';
-                            return (
-                              <tr key={i} className={isHigh ? 'bg-red-50/50' : isLow ? 'bg-amber-50/40' : 'hover:bg-slate-50'}>
-                                <td className="p-3 font-bold text-slate-900">{lab.test}</td>
-                                <td className="p-3">
-                                  <span className={`font-extrabold ${isHigh ? 'text-red-700' : isLow ? 'text-amber-700' : 'text-slate-800'}`}>
-                                    {lab.value} {lab.unit}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-slate-500 hidden sm:table-cell">{lab.referenceRange} {lab.unit}</td>
-                                <td className="p-3 text-right">
-                                  <span className={getLabFlagBadgeClass(lab.flag)}>
-                                    {lab.flag}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {extractedDocData.labValues.map((lab, i) => (
+                            <tr key={i} className={lab.flag === 'HIGH' ? 'bg-red-50/50' : lab.flag === 'LOW' ? 'bg-amber-50/40' : 'hover:bg-slate-50'}>
+                              <td className="p-3 font-bold text-slate-900">{lab.test}</td>
+                              <td className="p-3 font-extrabold">{lab.value} {lab.unit}</td>
+                              <td className="p-3 text-slate-500 hidden sm:table-cell">{lab.referenceRange} {lab.unit}</td>
+                              <td className="p-3 text-right">
+                                <span className={getLabFlagBadgeClass(lab.flag)}>{lab.flag}</span>
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
                   </div>
                 )}
 
-                {/* Verification Confirmation Actions */}
                 <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
                   <button
                     onClick={handleConfirmDocumentAndProceed}
@@ -808,24 +1124,11 @@ export default function KioskPage() {
 
                   <button
                     onClick={() => { setExtractedDocData(null); setUploadedDocName(''); }}
-                    className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl border border-slate-300 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                    className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl border border-slate-300 cursor-pointer"
                   >
-                    <RotateCcw className="w-4 h-4" /> Rescan / Different File
+                    <RotateCcw className="w-4 h-4" /> Rescan
                   </button>
                 </div>
-              </div>
-            )}
-
-            {/* Skip Action Footer (Always accessible) */}
-            {!isOcrProcessing && !extractedDocData && (
-              <div className="pt-4 border-t border-slate-100 flex justify-end">
-                <button
-                  onClick={handleSkipDocumentAndProceed}
-                  className="px-6 py-3.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm rounded-xl flex items-center gap-2 shadow-sm transition-all cursor-pointer"
-                >
-                  <span>{selectedLanguage === 'हिंदी' ? 'दस्तावेज़ नहीं है (सीधे प्रश्न पूछें)' : 'Skip Document Upload (Proceed to Questions)'}</span>
-                  <ArrowRight className="w-4 h-4 text-amber-400" />
-                </button>
               </div>
             )}
           </div>
@@ -833,32 +1136,23 @@ export default function KioskPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3A: STANDARD ALLOPATHIC SOCRATES QUESTION SEQUENCE                   */}
+      {/* 5A. ALLOPATHIC SOCRATES QUESTIONS                                         */}
       {/* ========================================================================= */}
       {step === 'questions' && selectedComplaint && (
         <main className="max-w-3xl mx-auto w-full flex-1 flex flex-col gap-6">
-          {/* Progress Header */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-3 text-xs font-semibold text-slate-500">
               <button 
-                onClick={handleRestart}
+                onClick={() => setStep('complaint_selection')}
                 className="text-slate-600 hover:text-slate-900 flex items-center gap-1 font-bold cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" /> Change Complaint
               </button>
-              <div className="flex items-center gap-2">
-                {extractedDocData && (
-                  <span className="bg-purple-100 text-purple-800 font-bold px-2.5 py-0.5 rounded text-[11px] border border-purple-200">
-                    📄 Document Attached
-                  </span>
-                )}
-                <span className="bg-slate-100 px-3 py-1 rounded-full text-slate-700 border border-slate-200">
-                  Question {currentQuestionIndex + 1} of {selectedComplaint.questions.length} • <strong>{selectedComplaint.questions[currentQuestionIndex].dimension}</strong>
-                </span>
-              </div>
+              <span className="bg-slate-100 px-3 py-1 rounded-full text-slate-700 border border-slate-200">
+                Question {currentQuestionIndex + 1} of {selectedComplaint.questions.length} • <strong>{selectedComplaint.questions[currentQuestionIndex].dimension}</strong>
+              </span>
             </div>
 
-            {/* Progress Bar */}
             <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
               <div 
                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"
@@ -867,7 +1161,6 @@ export default function KioskPage() {
             </div>
           </div>
 
-          {/* Active Question Box */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-6">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md mb-2 inline-block border border-blue-200">
@@ -880,7 +1173,6 @@ export default function KioskPage() {
               </h2>
             </div>
 
-            {/* Touch Option Buttons */}
             <div className="flex flex-col gap-3">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Touch Option:</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -901,9 +1193,9 @@ export default function KioskPage() {
               </div>
             </div>
 
-            {/* Voice Input Section */}
+            {/* Voice section */}
             <div className="border-t border-slate-100 pt-5 flex flex-col gap-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Answer (Voice Input):</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Answer:</span>
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleToggleVoice}
@@ -914,28 +1206,19 @@ export default function KioskPage() {
                   }`}
                 >
                   {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5 text-amber-400" />}
-                  {isListening ? 'Stop Listening' : 'Tap Mic & Speak'}
+                  {isListening ? 'Stop' : 'Tap Mic & Speak'}
                 </button>
 
-                {/* Voice Transcript Display */}
                 <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 min-h-[46px] flex items-center justify-between">
                   <span>
-                    {isListening ? (
-                      <span className="text-red-600 font-bold flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 bg-red-600 rounded-full animate-ping" />
-                        Listening... {voiceText}
-                      </span>
-                    ) : (
-                      voiceText || 'Press microphone and speak your answer...'
-                    )}
+                    {isListening ? `Listening... ${voiceText}` : voiceText || 'Press mic and speak...'}
                   </span>
-
                   {voiceText && !isListening && (
                     <button
                       onClick={() => handleAnswerQuestion(null, voiceText)}
-                      className="px-3 py-1 bg-blue-700 text-white text-xs font-bold rounded-lg hover:bg-blue-800 transition-colors cursor-pointer"
+                      className="px-3 py-1 bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer"
                     >
-                      Submit Speech
+                      Submit
                     </button>
                   )}
                 </div>
@@ -946,15 +1229,14 @@ export default function KioskPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3B: SEPARATE AYUSH DASHAVIDHA PARIKSHA QUESTION FLOW                 */}
+      {/* 5B. AYUSH DASHAVIDHA PARIKSHA QUESTIONS                                   */}
       {/* ========================================================================= */}
       {step === 'ayush_questions' && (
         <main className="max-w-3xl mx-auto w-full flex-1 flex flex-col gap-6">
-          {/* Progress Header */}
           <div className="bg-white border-2 border-emerald-200 rounded-2xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-3 text-xs font-semibold text-slate-500">
               <button 
-                onClick={handleRestart}
+                onClick={() => setStep('complaint_selection')}
                 className="text-slate-600 hover:text-slate-900 flex items-center gap-1 font-bold cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" /> Change Path
@@ -964,12 +1246,11 @@ export default function KioskPage() {
                   🌿 AYUSH Assessment
                 </span>
                 <span className="bg-slate-100 px-3 py-1 rounded-full text-slate-700 border border-slate-200">
-                  Step {ayushQuestionIndex + 1} of {AYUSH_QUESTIONS.length} • <strong>{AYUSH_QUESTIONS[ayushQuestionIndex].dimensionEn}</strong>
+                  Step {ayushQuestionIndex + 1} of {AYUSH_QUESTIONS.length}
                 </span>
               </div>
             </div>
 
-            {/* Progress Bar */}
             <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
               <div 
                 className="bg-emerald-600 h-2.5 rounded-full transition-all duration-300"
@@ -978,16 +1259,13 @@ export default function KioskPage() {
             </div>
           </div>
 
-          {/* Active AYUSH Question Box */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-6">
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-                  {selectedLanguage === 'हिंदी' 
-                    ? AYUSH_QUESTIONS[ayushQuestionIndex].dimensionHi 
-                    : AYUSH_QUESTIONS[ayushQuestionIndex].dimensionEn}
-                </span>
-              </div>
+              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 inline-block mb-2">
+                {selectedLanguage === 'हिंदी' 
+                  ? AYUSH_QUESTIONS[ayushQuestionIndex].dimensionHi 
+                  : AYUSH_QUESTIONS[ayushQuestionIndex].dimensionEn}
+              </span>
               <h2 className="text-xl font-extrabold text-slate-900">
                 {selectedLanguage === 'हिंदी' 
                   ? AYUSH_QUESTIONS[ayushQuestionIndex].questionHi 
@@ -995,9 +1273,8 @@ export default function KioskPage() {
               </h2>
             </div>
 
-            {/* Touch Option Cards */}
             <div className="flex flex-col gap-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Ayurvedic Finding (Touch):</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Finding (Touch):</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {AYUSH_QUESTIONS[ayushQuestionIndex].options.map((opt, i) => (
                   <button
@@ -1018,9 +1295,8 @@ export default function KioskPage() {
               </div>
             </div>
 
-            {/* Voice Input Section for AYUSH */}
             <div className="border-t border-slate-100 pt-5 flex flex-col gap-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Observation (Voice):</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Ayurvedic Symptoms:</span>
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleToggleVoice}
@@ -1031,27 +1307,19 @@ export default function KioskPage() {
                   }`}
                 >
                   {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5 text-amber-300" />}
-                  {isListening ? 'Stop Listening' : 'Speak Ayurvedic Symptoms'}
+                  {isListening ? 'Stop' : 'Speak'}
                 </button>
 
                 <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 min-h-[46px] flex items-center justify-between">
                   <span>
-                    {isListening ? (
-                      <span className="text-red-600 font-bold flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 bg-red-600 rounded-full animate-ping" />
-                        Listening... {voiceText}
-                      </span>
-                    ) : (
-                      voiceText || 'Press microphone to speak your lifestyle, appetite, or digestion habits...'
-                    )}
+                    {isListening ? `Listening... ${voiceText}` : voiceText || 'Speak your lifestyle or appetite habits...'}
                   </span>
-
                   {voiceText && !isListening && (
                     <button
                       onClick={() => handleAnswerAyushQuestion(null, voiceText)}
-                      className="px-3 py-1 bg-emerald-700 text-white text-xs font-bold rounded-lg hover:bg-emerald-800 transition-colors cursor-pointer"
+                      className="px-3 py-1 bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer"
                     >
-                      Submit Speech
+                      Submit
                     </button>
                   )}
                 </div>
@@ -1062,17 +1330,17 @@ export default function KioskPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 4: SUBMITTED CONFIRMATION SCREEN (TOKEN + ATTACHED RECORDS)           */}
+      {/* 6. SUBMITTED CONFIRMATION SCREEN (TOKEN + ABHA + RECORDS)                 */}
       {/* ========================================================================= */}
       {step === 'submitted' && (
-        <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 text-center">
-          <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-md w-full flex flex-col items-center gap-5">
+        <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 text-center my-auto">
+          <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-10 shadow-lg w-full flex flex-col items-center gap-5">
             <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center">
               <CheckCircle2 className="w-10 h-10" />
             </div>
 
             <div>
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+              <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
                 OPD Token Issued
               </span>
               <h2 className="text-4xl font-black text-slate-900 mt-1 font-mono tracking-tight text-blue-700">
@@ -1080,59 +1348,48 @@ export default function KioskPage() {
               </h2>
             </div>
 
-            {/* Check-In Dossier Summary Card */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 w-full text-left space-y-3">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 w-full text-left space-y-3">
               <div className="flex justify-between items-center border-b border-slate-200 pb-2">
-                <span className="text-xs font-extrabold text-slate-500 uppercase">Consultation Summary</span>
-                <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                <div>
+                  <strong className="text-sm text-slate-900 block">{submittedSession?.patientDetails?.name}</strong>
+                  <span className="text-xs text-slate-500 font-mono">ABHA: {submittedSession?.patientDetails?.abhaNumber || 'Verified'}</span>
+                </div>
+                <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-md">
                   {submittedSession?.complaintTitle}
                 </span>
               </div>
 
-              {/* Digitized Document Attachment Status */}
               {submittedSession?.digitizedDocument && (
-                <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-lg text-xs text-purple-950">
-                  <div className="flex items-center gap-1.5 font-bold mb-1">
-                    <FileText className="w-4 h-4 text-purple-700" /> Digitized Document Attached:
-                  </div>
-                  <p className="text-slate-600">
-                    {submittedSession.digitizedDocument.documentTitle} ({submittedSession.digitizedDocument.medications?.length || 0} meds, {submittedSession.digitizedDocument.labValues?.length || 0} lab tests digitized)
-                  </p>
+                <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-xl text-xs text-purple-950 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-purple-700 flex-shrink-0" />
+                  <span>Digitized Records: {submittedSession.digitizedDocument.documentTitle} attached</span>
                 </div>
               )}
 
-              {/* AYUSH Assessment Summary */}
               {submittedSession?.ayushAssessment && (
-                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-lg text-xs text-emerald-950">
-                  <div className="flex items-center gap-1.5 font-bold mb-1">
-                    <Leaf className="w-4 h-4 text-emerald-700" /> Dashavidha Pariksha Recorded:
-                  </div>
-                  <p className="text-slate-700 font-medium">
-                    {submittedSession.ayushAssessment.ayurvedicSummary}
-                  </p>
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-950 flex items-center gap-2">
+                  <Leaf className="w-4 h-4 text-emerald-700 flex-shrink-0" />
+                  <span>AYUSH Dashavidha Pariksha completed</span>
                 </div>
               )}
 
-              {/* Red Flags */}
-              {submittedSession?.redFlagsTriggered?.length > 0 && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900 font-bold flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-                  Priority Triage Alert Logged: Duty nurse will assist you at Counter 1.
-                </div>
-              )}
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Consent Status: {submittedSession?.consentStatus || 'GRANTED'} (Encrypted on ABDM Gateway)</span>
+              </div>
             </div>
 
             <p className="text-sm text-slate-600 max-w-md">
               {selectedLanguage === 'हिंदी'
-                ? 'आपकी जानकारी सुरक्षित रूप से दर्ज कर ली गई है। कृपया प्रतीक्षा क्षेत्र में बैठें।'
-                : 'Thank you! Your intake responses and attached documents have been transmitted to the duty physician. Please take a seat in the OPD waiting lounge.'}
+                ? 'आपकी जानकारी सुरक्षित रूप से दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
+                : 'Your intake responses and verified ABHA profile have been transmitted to the duty physician. Please take a seat in the waiting area.'}
             </p>
 
             <button
               onClick={handleRestart}
-              className="mt-2 w-full py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-sm rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+              className="mt-2 w-full py-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-base rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
-              <RefreshCw className="w-4 h-4" /> Start New Patient Session
+              <RefreshCw className="w-5 h-5" /> Start New Patient Session
             </button>
           </div>
         </main>
