@@ -287,7 +287,27 @@ export function convertSessionToFhirR4Bundle(session) {
     ]
   };
 
-  // 7. Full FHIR Release 4 Document Bundle
+  // 7. Consent Resource (DPDP Act & ABDM Data Sharing Authorization)
+  const consentResource = {
+    resourceType: 'Consent',
+    id: `consent-${session.id || 'current'}`,
+    status: 'active',
+    scope: {
+      coding: [{ system: 'http://terminology.hl7.org/CodeSystem/consentscope', code: 'patient-privacy', display: 'Privacy Consent' }]
+    },
+    category: [
+      {
+        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/consentcategorycodes', code: 'opt-in', display: 'Opt-in' }]
+      }
+    ],
+    patient: { reference: `Patient/${patientResource.id}`, display: patientName },
+    dateTime: session.consentTimestamp || nowIso,
+    policyRule: {
+      coding: [{ system: 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/Consent', code: 'DPDP-ACT-2023', display: 'Digital Personal Data Protection Act 2023 Consent' }]
+    }
+  };
+
+  // 8. Full FHIR Release 4 Document Bundle
   const bundle = {
     resourceType: 'Bundle',
     id: `bundle-opd-${session.id || 'current'}`,
@@ -306,6 +326,7 @@ export function convertSessionToFhirR4Bundle(session) {
       { fullUrl: `urn:uuid:${compositionResource.id}`, resource: compositionResource },
       { fullUrl: `urn:uuid:${patientResource.id}`, resource: patientResource },
       { fullUrl: `urn:uuid:${practitionerResource.id}`, resource: practitionerResource },
+      { fullUrl: `urn:uuid:${consentResource.id}`, resource: consentResource },
       ...conditionResources.map(c => ({ fullUrl: `urn:uuid:${c.id}`, resource: c })),
       ...observationResources.map(o => ({ fullUrl: `urn:uuid:${o.id}`, resource: o })),
       ...medicationResources.map(m => ({ fullUrl: `urn:uuid:${m.id}`, resource: m }))
@@ -313,4 +334,105 @@ export function convertSessionToFhirR4Bundle(session) {
   };
 
   return bundle;
+}
+
+/**
+ * Structural FHIR Release 4 Document Bundle Validator (NRCES / ABDM Compliant)
+ * Enforces structural integrity of Bundle, Composition, Patient, Condition,
+ * Observation, MedicationStatement, and Consent resources before EMR transmission.
+ * 
+ * @param {Object} bundle - FHIR Document Bundle
+ * @returns {Object} Validation report { isValid, resourceCount, validatedResources, errors, warnings }
+ */
+export function validateFhirR4Bundle(bundle) {
+  const errors = [];
+  const warnings = [];
+  const validatedResources = [];
+
+  if (!bundle) {
+    return { isValid: false, resourceCount: 0, validatedResources: [], errors: ['Bundle payload is empty or null.'], warnings: [] };
+  }
+
+  if (bundle.resourceType !== 'Bundle') {
+    errors.push(`Root resourceType must be 'Bundle', received '${bundle.resourceType}'.`);
+  }
+
+  if (bundle.type !== 'document') {
+    errors.push(`Document bundle type must be 'document', received '${bundle.type}'.`);
+  }
+
+  if (!bundle.entry || !Array.isArray(bundle.entry) || bundle.entry.length === 0) {
+    errors.push('Bundle must contain a non-empty array of entries.');
+    return { isValid: false, resourceCount: 0, validatedResources: [], errors, warnings };
+  }
+
+  // 1. First entry must be Composition per HL7 FHIR Document Bundle specification
+  const firstEntry = bundle.entry[0]?.resource;
+  if (!firstEntry || firstEntry.resourceType !== 'Composition') {
+    errors.push(`First entry in document bundle MUST be a 'Composition' resource, found '${firstEntry?.resourceType}'.`);
+  } else {
+    validatedResources.push('Composition');
+    if (!firstEntry.status) errors.push('Composition missing required field: status');
+    if (!firstEntry.type) errors.push('Composition missing required field: type');
+    if (!firstEntry.subject?.reference) errors.push('Composition missing required field: subject.reference');
+    if (!firstEntry.author || firstEntry.author.length === 0) errors.push('Composition missing required field: author');
+    if (!firstEntry.section || !Array.isArray(firstEntry.section)) errors.push('Composition missing required field: section array');
+  }
+
+  // Validate each entry in the bundle
+  bundle.entry.forEach((ent, idx) => {
+    const r = ent.resource;
+    if (!r) {
+      errors.push(`Entry #${idx} is missing a resource object.`);
+      return;
+    }
+
+    if (!r.resourceType) {
+      errors.push(`Entry #${idx} missing 'resourceType'.`);
+      return;
+    }
+
+    if (!r.id) {
+      warnings.push(`Resource ${r.resourceType} at entry #${idx} is missing an explicit 'id'.`);
+    }
+
+    validatedResources.push(r.resourceType);
+
+    switch (r.resourceType) {
+      case 'Patient':
+        if (!r.name || r.name.length === 0) errors.push(`Patient ${r.id} missing 'name' attribute.`);
+        if (!r.gender) warnings.push(`Patient ${r.id} missing 'gender' attribute.`);
+        break;
+
+      case 'Condition':
+        if (!r.clinicalStatus?.coding) warnings.push(`Condition ${r.id} missing 'clinicalStatus.coding'.`);
+        if (!r.code) errors.push(`Condition ${r.id} missing 'code' (clinical condition finding).`);
+        if (!r.subject?.reference) errors.push(`Condition ${r.id} missing 'subject.reference'.`);
+        break;
+
+      case 'Observation':
+        if (!r.status) errors.push(`Observation ${r.id} missing 'status'.`);
+        if (!r.code) errors.push(`Observation ${r.id} missing 'code'.`);
+        break;
+
+      case 'MedicationStatement':
+        if (!r.status) errors.push(`MedicationStatement ${r.id} missing 'status'.`);
+        if (!r.medicationCodeableConcept && !r.medicationReference) errors.push(`MedicationStatement ${r.id} missing medication identifier.`);
+        if (!r.subject?.reference) errors.push(`MedicationStatement ${r.id} missing 'subject.reference'.`);
+        break;
+
+      case 'Consent':
+        if (!r.status) errors.push(`Consent ${r.id} missing 'status'.`);
+        if (!r.patient?.reference) errors.push(`Consent ${r.id} missing 'patient.reference'.`);
+        break;
+    }
+  });
+
+  return {
+    isValid: errors.length === 0,
+    resourceCount: bundle.entry.length,
+    validatedResources: [...new Set(validatedResources)],
+    errors,
+    warnings
+  };
 }

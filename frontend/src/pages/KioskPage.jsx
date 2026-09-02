@@ -19,6 +19,7 @@ import {
 } from '../services/authService.js';
 import LiveCameraModal from '../components/LiveCameraModal.jsx';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
+import { generatePatientReadBackSummary } from '../services/clinicalSummaryGenerator.js';
 
 // Fallback Dialogue Flows JSON
 import fallbackFlows from '../../../backend/mockData/dialogueFlows.json';
@@ -33,10 +34,13 @@ const COMPLAINT_ICONS = {
 };
 
 export default function KioskPage() {
-  // Steps: 'patient_auth' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'submitted'
+  // Steps: 'patient_auth' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'summary_readback' | 'submitted'
   const [step, setStep] = useState('patient_auth');
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [pendingSubmissionData, setPendingSubmissionData] = useState(null);
+  const [patientReadBackText, setPatientReadBackText] = useState('');
+  const [isPlayingReadBack, setIsPlayingReadBack] = useState(false);
 
   // Patient Auth State
   const [authTab, setAuthTab] = useState('login'); // 'login' | 'signup'
@@ -475,7 +479,7 @@ export default function KioskPage() {
       const data = await res.json();
 
       if (data.isComplete) {
-        handleSubmitSession({
+        triggerPatientReadBack({
           finalAnswers: Object.values(updatedAnswers),
           finalRedFlags: updatedFlags,
           ayushData: null
@@ -494,7 +498,7 @@ export default function KioskPage() {
         setCurrentDynamicQuestion(nextQ);
         speakCurrentQuestion(nextQ);
       } else {
-        handleSubmitSession({
+        triggerPatientReadBack({
           finalAnswers: Object.values(updatedAnswers),
           finalRedFlags: updatedFlags,
           ayushData: null
@@ -502,6 +506,31 @@ export default function KioskPage() {
       }
     } finally {
       setIsThinking(false);
+    }
+  };
+
+  // Audio Read-back Confirmation Trigger (Phase 7 Bilingual Output)
+  const triggerPatientReadBack = ({ finalAnswers, finalRedFlags, ayushData }) => {
+    cancelSpeech();
+    const payload = { finalAnswers, finalRedFlags, ayushData };
+    setPendingSubmissionData(payload);
+
+    const title = isAyushFlow 
+      ? ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? AYUSH_COMPLAINT_META.titleHi : AYUSH_COMPLAINT_META.titleEn)
+      : ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? selectedComplaint?.titleHi : selectedComplaint?.title);
+
+    const readBack = generatePatientReadBackSummary({
+      complaintTitle: title || 'Consultation',
+      answers: finalAnswers,
+      digitizedDocument,
+      ayushAssessment: ayushData
+    }, selectedLanguage);
+
+    setPatientReadBackText(readBack);
+    setStep('summary_readback');
+    if (ttsEnabled) {
+      setIsPlayingReadBack(true);
+      speakText(readBack, selectedLanguage);
     }
   };
 
@@ -533,7 +562,7 @@ export default function KioskPage() {
       } else {
         const compiledAyush = compileAyushSummary(ayushAnswers);
         compiledAyush.clarifyingHistory = combinedHistory;
-        handleSubmitSession({
+        triggerPatientReadBack({
           finalAnswers: Object.values(ayushAnswers),
           finalRedFlags: [],
           ayushData: compiledAyush
@@ -606,7 +635,7 @@ export default function KioskPage() {
       if (ayushClarifyingHistory) {
         compiledAyush.clarifyingHistory = ayushClarifyingHistory;
       }
-      handleSubmitSession({
+      triggerPatientReadBack({
         finalAnswers: Object.values(updatedAyushAnswers),
         finalRedFlags: [],
         ayushData: compiledAyush
@@ -1726,6 +1755,91 @@ export default function KioskPage() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5C. PATIENT-FACING AUDIO READ-BACK & SUMMARY CONFIRMATION SCREEN          */}
+      {/* ========================================================================= */}
+      {step === 'summary_readback' && (
+        <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 text-center my-auto animate-fadeIn">
+          <div className="bg-white border-2 border-blue-200 rounded-3xl p-8 shadow-xl w-full flex flex-col items-center gap-6">
+            <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center shadow-inner">
+              <Volume2 className="w-8 h-8 animate-pulse" />
+            </div>
+
+            <div>
+              <span className="text-xs font-black text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full uppercase tracking-wider">
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? 'परामर्श सारांश सत्यापन' : 'Consultation Summary Verification'}
+              </span>
+              <h2 className="text-2xl font-black text-slate-900 mt-2">
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                  ? 'कृपया अपना विवरण जांचें व पुष्टि करें'
+                  : "Here's what we understood, please confirm"}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                  ? 'ऑडियो सुनें या नीचे दिए गए सारांश की पुष्टि करके टोकन प्राप्त करें'
+                  : 'Listen to the audio read-back or confirm below to issue your OPD token'}
+              </p>
+            </div>
+
+            {/* Read-Back Spoken Speech Card */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 w-full text-left flex flex-col gap-3">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-blue-600" /> Spoken Verification
+                </span>
+                <button
+                  onClick={() => {
+                    cancelSpeech();
+                    speakText(patientReadBackText, selectedLanguage);
+                    setIsPlayingReadBack(true);
+                  }}
+                  className="text-xs font-black text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200"
+                >
+                  <Volume2 className="w-3.5 h-3.5" /> Replay Audio
+                </button>
+              </div>
+
+              <p className="text-sm font-semibold text-slate-800 leading-relaxed font-sans">
+                "{patientReadBackText}"
+              </p>
+            </div>
+
+            {/* Action Buttons: Confirm vs Go Back to Edit */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+              <button
+                disabled={isSubmitting}
+                onClick={() => {
+                  cancelSpeech();
+                  setStep(isAyushFlow ? 'ayush_questions' : 'questions');
+                }}
+                className="w-full sm:w-1/3 py-4 rounded-2xl font-black text-xs text-slate-700 bg-slate-100 hover:bg-slate-200 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? 'संशोधन करें' : 'Edit Responses'}
+              </button>
+
+              <button
+                disabled={isSubmitting}
+                onClick={() => {
+                  cancelSpeech();
+                  if (pendingSubmissionData) {
+                    handleSubmitSession(pendingSubmissionData);
+                  }
+                }}
+                className={`w-full sm:w-2/3 py-4 rounded-2xl font-black text-sm text-white transition-all cursor-pointer shadow-md flex items-center justify-center gap-2 ${
+                  isSubmitting ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+                }`}
+              >
+                <CheckCircle2 className="w-5 h-5" />
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                  ? 'पुष्टि करें और टोकन प्राप्त करें'
+                  : 'Confirm & Issue OPD Token'}
+              </button>
             </div>
           </div>
         </main>

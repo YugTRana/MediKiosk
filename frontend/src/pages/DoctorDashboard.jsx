@@ -8,11 +8,12 @@ import {
   BellRing, Radio, Settings, User
 } from 'lucide-react';
 import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js';
-import { convertSessionToFhirR4Bundle } from '../services/fhirGenerator.js';
+import { convertSessionToFhirR4Bundle, validateFhirR4Bundle } from '../services/fhirGenerator.js';
 import { pushFhirToHospitalEmr } from '../services/abdmService.js';
 import { getLabFlagBadgeClass } from '../services/docAiService.js';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
 import DocumentTimeline from '../components/DocumentTimeline.jsx';
+import { Languages } from 'lucide-react';
 
 // Play Realistic Hospital Chime Synthesizer via Web Audio API
 function playHospitalChime() {
@@ -70,6 +71,9 @@ export default function DoctorDashboard() {
   const [callingPatientStatus, setCallingPatientStatus] = useState(null);
   const [isCallingAudio, setIsCallingAudio] = useState(false);
   const [selectedTimelineDoc, setSelectedTimelineDoc] = useState(null);
+  const [dossierLang, setDossierLang] = useState('en'); // 'en' | 'hi'
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
+  const [saveEditFeedback, setSaveEditFeedback] = useState(false);
 
   const fetchSessions = async () => {
     setLoading(true);
@@ -147,6 +151,12 @@ export default function DoctorDashboard() {
     return convertSessionToFhirR4Bundle(currentSession);
   }, [currentSession]);
 
+  // Structural FHIR R4 Bundle Validation report
+  const fhirValidation = useMemo(() => {
+    if (!fhirBundle) return null;
+    return validateFhirR4Bundle(fhirBundle);
+  }, [fhirBundle]);
+
   // Filtered FHIR resource for modal tabs
   const activeFhirView = useMemo(() => {
     if (!fhirBundle) return null;
@@ -158,32 +168,67 @@ export default function DoctorDashboard() {
     if (fhirTab === 'condition') return entries.filter(e => e.resource.resourceType === 'Condition').map(e => e.resource);
     if (fhirTab === 'observation') return entries.filter(e => e.resource.resourceType === 'Observation').map(e => e.resource);
     if (fhirTab === 'medication') return entries.filter(e => e.resource.resourceType === 'MedicationStatement').map(e => e.resource);
+    if (fhirTab === 'consent') return entries.find(e => e.resource.resourceType === 'Consent')?.resource;
     return fhirBundle;
   }, [fhirBundle, fhirTab]);
 
   useEffect(() => {
     if (!currentSession) return;
-    if (!sessionSectionsMap[currentSession.id]) {
-      const initialSections = compileClinicalDossier(currentSession);
+    const sessionKey = `${currentSession.id}_${dossierLang}`;
+    if (!sessionSectionsMap[sessionKey]) {
+      const initialSections = compileClinicalDossier(currentSession, dossierLang);
       setSessionSectionsMap((prev) => ({
         ...prev,
-        [currentSession.id]: initialSections
+        [sessionKey]: initialSections
       }));
     }
-  }, [currentSession, sessionSectionsMap]);
+  }, [currentSession, sessionSectionsMap, dossierLang]);
 
-  const currentSections = sessionSectionsMap[currentSession?.id] || [];
+  const currentSections = sessionSectionsMap[`${currentSession?.id}_${dossierLang}`] 
+    || sessionSectionsMap[currentSession?.id] 
+    || [];
 
   const updateSection = (sectionId, updaterFn) => {
     if (!currentSession) return;
+    const sessionKey = `${currentSession.id}_${dossierLang}`;
     setSessionSectionsMap((prev) => {
-      const sections = prev[currentSession.id] || [];
-      const updated = sections.map((sec) => {
-        if (sec.id === sectionId) return updaterFn(sec);
-        return sec;
-      });
-      return { ...prev, [currentSession.id]: updated };
+      const sections = prev[sessionKey] || prev[currentSession.id] || [];
+      const updated = sections.map((sec) => (sec.id === sectionId ? updaterFn(sec) : sec));
+      return {
+        ...prev,
+        [sessionKey]: updated,
+        [currentSession.id]: updated
+      };
     });
+  };
+
+  // Persist physician amendments distinctly from AI draft
+  const handleSavePhysicianEdits = async () => {
+    if (!currentSession) return;
+    setIsSavingEdits(true);
+    try {
+      const { getAuthHeaders } = await import('../services/authService.js');
+      const res = await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/physician-edit`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sections: currentSections,
+          signed: true
+        })
+      });
+      if (res.ok) {
+        setSaveEditFeedback(true);
+        setTimeout(() => setSaveEditFeedback(false), 3000);
+        fetchSessions();
+      }
+    } catch (err) {
+      console.error('Failed to save physician edits:', err);
+    } finally {
+      setIsSavingEdits(false);
+    }
   };
 
   const handleAcceptSection = (sec) => {
@@ -638,6 +683,11 @@ export default function DoctorDashboard() {
                         <Leaf className="w-3.5 h-3.5 text-emerald-700" /> AYUSH Intake
                       </span>
                     )}
+                    {currentSession.editedByPhysician && (
+                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-900 text-xs font-black rounded-md border border-emerald-300 flex items-center gap-1 shadow-xs">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" /> Physician Verified
+                      </span>
+                    )}
                   </div>
                   <h2 className="text-2xl font-black text-slate-900 mt-2">
                     {currentSession.patientDetails?.name || 'Walk-in Patient'}
@@ -647,11 +697,36 @@ export default function DoctorDashboard() {
                   </p>
                 </div>
 
-                {/* 10-Second Action Toolbar (Call Patient + EMR Push + FHIR Bundle + Approve All) */}
+                {/* 10-Second Action Toolbar (Language Toggle + Save Amendments + Call Patient + EMR Push + FHIR Bundle) */}
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* Bilingual Output Toggle (English vs Hindi) */}
+                  <button
+                    onClick={() => setDossierLang(prev => prev === 'en' ? 'hi' : 'en')}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black rounded-xl border border-slate-300 flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                    title="Toggle dossier language between English and Hindi"
+                  >
+                    <Languages className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{dossierLang === 'en' ? 'EN' : 'हिंदी'}</span>
+                  </button>
+
+                  {/* Save Physician Amendments Button */}
+                  <button
+                    onClick={handleSavePhysicianEdits}
+                    disabled={isSavingEdits}
+                    className={`px-3 py-2 text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition-all ${
+                      saveEditFeedback
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                    }`}
+                    title="Save physician-amended summary distinctly from AI draft"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    {isSavingEdits ? 'Saving...' : saveEditFeedback ? 'Saved ✓' : 'Save Edits'}
+                  </button>
+
                   <button
                     onClick={handleCallPatient}
-                    className={`px-3.5 py-2.5 text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer ${
+                    className={`px-3.5 py-2 text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer ${
                       isCallingAudio
                         ? 'bg-amber-500 text-slate-950 animate-bounce'
                         : 'bg-blue-700 hover:bg-blue-800 text-white'
@@ -992,6 +1067,31 @@ export default function DoctorDashboard() {
               </div>
             </div>
 
+            {/* FHIR Structural Validation Status Banner */}
+            {fhirValidation && (
+              <div className={`mx-5 mt-4 p-3 rounded-xl border text-xs flex items-center justify-between ${
+                fhirValidation.isValid 
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                  : 'bg-red-50 border-red-300 text-red-950'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {fhirValidation.isValid ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  )}
+                  <span className="font-bold">
+                    {fhirValidation.isValid 
+                      ? `Structural FHIR R4 Bundle Validation Passed (NRCES / ABDM Compliant • ${fhirValidation.resourceCount} Resources Verified)`
+                      : `FHIR Validation Errors: ${fhirValidation.errors.join('; ')}`}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white border font-extrabold text-slate-700">
+                  {fhirValidation.validatedResources.join(' • ')}
+                </span>
+              </div>
+            )}
+
             {/* Resource Filter Tabs */}
             <div className="bg-slate-100 px-5 py-2.5 flex items-center gap-1.5 overflow-x-auto border-b border-slate-200 text-xs font-bold">
               {[
@@ -1000,7 +1100,8 @@ export default function DoctorDashboard() {
                 { id: 'patient', label: 'Patient (ABHA)' },
                 { id: 'condition', label: 'Condition (SNOMED)' },
                 { id: 'observation', label: 'Observation (LOINC)' },
-                { id: 'medication', label: 'MedicationStatement' }
+                { id: 'medication', label: 'MedicationStatement' },
+                { id: 'consent', label: 'Consent (DPDP)' }
               ].map((tab) => (
                 <button
                   key={tab.id}

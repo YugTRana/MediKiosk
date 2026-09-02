@@ -1,312 +1,317 @@
-// Clinical Summary Generator for Physician Review Dashboard
-// Converts structured SOCRATES responses and OCR data into standardized EHR prose and sections
+// Clinical Summary Generator for Physician Review Dashboard & Patient Audio Read-back
+// Genuinely synthesizes BOTH conversational intake history (SOCRATES / AYUSH)
+// AND digitized documents (Medications, Lab tests, Imaging, Drug Interactions)
+// into the standard 8-part physician dossier.
 
-export function generateHpiProse(session) {
+export function generateHpiProse(session, language = 'en') {
   if (!session) return 'No clinical data available for this session.';
+  const isHi = language === 'hi' || language === 'Hindi';
 
   const { complaintTitle, complaintId, answers = [], digitizedDocument, patientDetails } = session;
+  const rawAnswers = Array.isArray(answers) ? answers : (typeof answers === 'string' ? JSON.parse(answers || '[]') : []);
+  const doc = session.digitizedDocument;
+
   const answerMap = {};
-  answers.forEach((a) => {
-    const qId = a.questionId || '';
+  rawAnswers.forEach((a) => {
+    const qId = a.questionId || a.dimension || '';
     const label = a.selectedOption?.labelEn || a.customVoiceText || a.selectedOption?.value || '';
-    answerMap[qId] = label;
+    const labelHi = a.selectedOption?.labelHi || label;
+    answerMap[qId] = isHi ? labelHi : label;
   });
 
-  const patientName = patientDetails?.name || 'Patient';
-  const age = patientDetails?.age ? `${patientDetails.age}-year-old` : '';
-  const gender = patientDetails?.gender ? patientDetails.gender.toLowerCase() : 'individual';
+  const patientName = patientDetails?.name || (isHi ? 'रोगी' : 'Patient');
+  const age = patientDetails?.age ? (isHi ? `${patientDetails.age} वर्षीय` : `${patientDetails.age}-year-old`) : '';
+  const gender = patientDetails?.gender ? (isHi ? (patientDetails.gender.toLowerCase() === 'female' ? 'महिला' : 'पुरुष') : patientDetails.gender.toLowerCase()) : '';
 
-  // ============================================================================
-  // A. JOINT PAIN & SWELLING HPI GENERATOR (ANATOMICAL PART + SWELLING SPECIFIC)
-  // ============================================================================
+  // 1. Joint Pain & Swelling
   if (complaintId === 'joint_pain' || /joint|swelling|knee|arthritis/i.test(complaintTitle)) {
-    const site = answerMap['joint_site'] || 'the bilateral knee and peripheral joints';
-    const swellingQuality = answerMap['joint_swelling_character'] || 'visible swelling, warmth, and joint stiffness';
-    const exacerbating = answerMap['joint_exacerbating'] || 'prolonged weight-bearing and stairs';
-    const associations = answerMap['joint_associations'] || 'no acute neurological deficits';
+    const site = answerMap['joint_site'] || (isHi ? 'दोनों घुटने व जोड़' : 'the bilateral knee joints');
+    const swellingQuality = answerMap['joint_swelling_character'] || (isHi ? 'दर्द, सूजन व अकड़न' : 'visible swelling, warmth, and joint stiffness');
+    const exacerbating = answerMap['joint_exacerbating'] || (isHi ? 'चलने व सीढ़ियां चढ़ने पर' : 'weight-bearing and stairs');
+    const associations = answerMap['joint_associations'] || '';
 
-    let hpi = `${patientName} is a ${age} ${gender} presenting with joint pain and swelling localized primarily to ${site}. `;
-    hpi += `The patient reports ${swellingQuality.toLowerCase()}. `;
-    hpi += `Symptoms are reported as ${exacerbating.toLowerCase()}. `;
-    
-    if (associations && !associations.toLowerCase().includes('none')) {
-      hpi += `Associated clinical history includes: ${associations}. `;
+    let hpi = isHi
+      ? `${patientName} (${age} ${gender}) ओपीडी में ${site} में दर्द व सूजन की शिकायत लेकर उपस्थित हुए हैं। `
+      : `${patientName} is a ${age} ${gender} presenting with joint pain and swelling localized primarily to ${site}. `;
+
+    hpi += isHi
+      ? `रोगी ने ${swellingQuality} का अनुभव बताया है, जो कि ${exacerbating} बढ़ता है। `
+      : `The patient reports ${swellingQuality.toLowerCase()}, aggravated by ${exacerbating.toLowerCase()}. `;
+
+    if (associations && !associations.toLowerCase().includes('none') && !associations.includes('कोई नहीं')) {
+      hpi += isHi ? `संबद्ध लक्षण: ${associations}। ` : `Associated clinical history includes: ${associations}. `;
     }
 
-    if (digitizedDocument?.labValues) {
-      const uricAcid = digitizedDocument.labValues.find(l => /uric/i.test(l.test));
-      const crp = digitizedDocument.labValues.find(l => /crp/i.test(l.test));
-      const esr = digitizedDocument.labValues.find(l => /esr/i.test(l.test));
-      const rf = digitizedDocument.labValues.find(l => /rheumatoid|ra/i.test(l.test));
-
-      const markers = [];
-      if (uricAcid && uricAcid.flag === 'HIGH') markers.push(`Serum Uric Acid of ${uricAcid.value} ${uricAcid.unit} (HIGH)`);
-      if (crp && crp.flag === 'HIGH') markers.push(`CRP of ${crp.value} ${crp.unit} (HIGH)`);
-      if (esr && esr.flag === 'HIGH') markers.push(`ESR of ${esr.value} ${esr.unit} (HIGH)`);
-      if (rf && rf.flag === 'HIGH') markers.push(`RA Factor of ${rf.value} ${rf.unit} (HIGH)`);
-
+    if (doc?.labValues) {
+      const markers = doc.labValues
+        .filter(l => l.flag === 'HIGH' || l.flag === 'LOW')
+        .map(l => `${l.test}: ${l.value} ${l.unit} [${l.flag}]`);
       if (markers.length > 0) {
-        hpi += `Recent rheumatology investigations demonstrate marked inflammatory elevation with ${markers.join(', ')}. `;
+        hpi += isHi
+          ? `हाल की जांच रिपोर्ट में असामान्य मान: ${markers.join(', ')}। `
+          : `Recent investigations demonstrate: ${markers.join(', ')}. `;
       }
     }
 
-    if (digitizedDocument?.imagingFindings) {
-      hpi += `Previous radiological evaluation noted: "${digitizedDocument.imagingFindings}" `;
+    if (doc?.imagingFindings) {
+      hpi += isHi
+        ? `रेडियोलॉजी निष्कर्ष: "${doc.imagingFindings}"। `
+        : `Previous radiological evaluation noted: "${doc.imagingFindings}". `;
     }
 
     return hpi;
   }
 
-  // ============================================================================
-  // B. FEVER HPI GENERATOR
-  // ============================================================================
+  // 2. Fever & Infection
   if (complaintId === 'fever' || /fever/i.test(complaintTitle)) {
-    const onset = answerMap['fever_onset'] || 'recently';
-    const character = answerMap['fever_character'] || 'elevated temperature';
-    const associations = answerMap['fever_associations'] || 'general fatigue';
-    const severity = answerMap['fever_severity'] || 'moderate';
+    const onset = answerMap['fever_onset'] || (isHi ? 'हाल ही में' : 'recently');
+    const character = answerMap['fever_character'] || (isHi ? 'तेज बुखार' : 'elevated temperature');
+    const associations = answerMap['fever_associations'] || '';
+    const severity = answerMap['fever_severity'] || (isHi ? 'मध्यम' : 'moderate');
 
-    let hpi = `${patientName} (${age} ${gender}) presents with complaints of ${complaintTitle.toLowerCase()} with onset ${onset.toLowerCase()}. `;
-    hpi += `The fever is described as ${character.toLowerCase()}. `;
+    let hpi = isHi
+      ? `${patientName} (${age} ${gender}) बुखार की समस्या (${onset}) के साथ आए हैं। `
+      : `${patientName} (${age} ${gender}) presents with complaints of ${complaintTitle.toLowerCase()} with onset ${onset.toLowerCase()}. `;
+
+    hpi += isHi
+      ? `बुखार का स्वरूप ${character} है तथा तीव्रता ${severity} है। `
+      : `The fever is described as ${character.toLowerCase()} with self-assessed severity of ${severity.toLowerCase()}. `;
+
     if (associations && !associations.toLowerCase().includes('none')) {
-      hpi += `The patient notes associated ${associations.toLowerCase()}. `;
+      hpi += isHi ? `साथ में ${associations} भी उपस्थित है। ` : `The patient notes associated ${associations.toLowerCase()}. `;
     }
-    hpi += `Current discomfort level is characterized as ${severity.toLowerCase()}. `;
 
-    if (digitizedDocument?.labValues && digitizedDocument.labValues.length > 0) {
-      const plt = digitizedDocument.labValues.find(l => /platelet/i.test(l.test));
-      const tlc = digitizedDocument.labValues.find(l => /leukocyte|tlc/i.test(l.test));
-      const fbs = digitizedDocument.labValues.find(l => /sugar|fbs|glucose/i.test(l.test));
-      const hba1c = digitizedDocument.labValues.find(l => /hba1c/i.test(l.test));
-      const bp = digitizedDocument.labValues.find(l => /blood pressure|bp/i.test(l.test));
-
-      const labNotes = [];
-      if (plt) labNotes.push(`Platelets ${plt.value} ${plt.unit} (${plt.flag})`);
-      if (tlc) labNotes.push(`TLC ${tlc.value} ${tlc.unit} (${tlc.flag})`);
-      if (fbs) labNotes.push(`FBS ${fbs.value} ${fbs.unit} (${fbs.flag})`);
-      if (hba1c) labNotes.push(`HbA1c ${hba1c.value} ${hba1c.unit} (${hba1c.flag})`);
-      if (bp) labNotes.push(`Blood Pressure ${bp.value} ${bp.unit} (${bp.flag})`);
-
-      if (labNotes.length > 0) {
-        hpi += `Uploaded clinical records note: ${labNotes.join(', ')}. `;
+    if (doc?.labValues && doc.labValues.length > 0) {
+      const flagged = doc.labValues.filter(l => l.flag === 'HIGH' || l.flag === 'LOW').map(l => `${l.test} ${l.value} ${l.unit} (${l.flag})`);
+      if (flagged.length > 0) {
+        hpi += isHi
+          ? `अपलोड की गई जांच रिपोर्ट में असामान्य मान: ${flagged.join(', ')}। `
+          : `Uploaded clinical records note abnormal markers: ${flagged.join(', ')}. `;
       }
     }
     return hpi;
   }
 
-  // ============================================================================
-  // C. COUGH & BREATHLESSNESS HPI GENERATOR
-  // ============================================================================
-  if (complaintId === 'cough_breathlessness' || /cough|breath/i.test(complaintTitle)) {
-    const onset = answerMap['cough_onset'] || 'recently';
-    const character = answerMap['cough_character'] || 'respiratory discomfort';
-    const severity = answerMap['cough_severity'] || 'moderate';
-    const associations = answerMap['cough_associations'] || 'none';
-
-    let hpi = `${patientName} (${age} ${gender}) presents with ${complaintTitle.toLowerCase()} starting ${onset.toLowerCase()}. `;
-    hpi += `Characterized as ${character.toLowerCase()} with a self-assessed severity of ${severity}/10. `;
-    if (associations && !associations.toLowerCase().includes('none')) {
-      hpi += `Associated symptoms include ${associations.toLowerCase()}. `;
-    }
-    return hpi;
+  // 3. Generic Fallback
+  if (isHi) {
+    return `${patientName} (${age} ${gender}) ओपीडी परामर्श हेतु उपस्थित हुए हैं। प्रारंभिक कियोस्क मूल्यांकन में ${rawAnswers.length} संरचित उत्तर दर्ज किए गए।`;
   }
-
-  // ============================================================================
-  // D. ABDOMINAL PAIN HPI GENERATOR
-  // ============================================================================
-  if (complaintId === 'abdominal_pain' || /abdo|stomach/i.test(complaintTitle)) {
-    const site = answerMap['abdo_site'] || 'the abdomen';
-    const character = answerMap['abdo_character'] || 'abdominal cramps';
-    const associations = answerMap['abdo_associations'] || 'nausea';
-    const severity = answerMap['abdo_severity'] || 'moderate';
-
-    let hpi = `${patientName} (${age} ${gender}) presents with abdominal pain localized to ${site.toLowerCase()}. `;
-    hpi += `The pain is described as ${character.toLowerCase()} of ${severity.toLowerCase()} severity. `;
-    if (associations && !associations.toLowerCase().includes('none')) {
-      hpi += `Associated signs include ${associations.toLowerCase()}. `;
-    }
-    return hpi;
-  }
-
-  // ============================================================================
-  // E. CHEST PAIN HPI GENERATOR
-  // ============================================================================
-  if (complaintId === 'chest_pain' || /chest/i.test(complaintTitle)) {
-    const character = answerMap['chest_character'] || 'chest tightness';
-    const radiation = answerMap['chest_radiation'] || 'no radiation';
-    const associations = answerMap['chest_associations'] || 'none';
-    const severity = answerMap['chest_severity'] || '7';
-
-    let hpi = `${patientName} (${age} ${gender}) presents with acute chest discomfort characterized as ${character.toLowerCase()}. `;
-    hpi += `Radiation of pain: ${radiation.toLowerCase()}. `;
-    hpi += `Self-assessed pain severity is rated at ${severity}/10. `;
-    if (associations && !associations.toLowerCase().includes('none')) {
-      hpi += `Associated warning signs reported: ${associations.toLowerCase()}. `;
-    }
-    return hpi;
-  }
-
-  // Default Generic HPI Prose
-  return `${patientName} (${age} ${gender}) presents to the outpatient clinic for evaluation of ${complaintTitle.toLowerCase()}. Initial automated intake assessment completed with ${answers.length} structured response points.`;
+  return `${patientName} (${age} ${gender}) presents to the outpatient clinic for evaluation of ${complaintTitle.toLowerCase()}. Initial automated intake assessment completed with ${rawAnswers.length} structured response points.`;
 }
 
-// Compiles the complete structured clinical dossier
-export function compileClinicalDossier(session) {
+/**
+ * Generate a patient-friendly 2-3 sentence audio read-back summary for the kiosk confirmation step.
+ */
+export function generatePatientReadBackSummary(session, language = 'en') {
+  if (!session) return '';
+  const isHi = language === 'hi' || language === 'Hindi';
+  const { complaintTitle = 'General Consultation', answers = [], digitizedDocument, ayushAssessment } = session;
+
+  const rawAnswers = Array.isArray(answers) ? answers : (typeof answers === 'string' ? JSON.parse(answers || '[]') : []);
+
+  if (isHi) {
+    let text = `आपके द्वारा दी गई जानकारी के अनुसार, आपकी मुख्य समस्या ${complaintTitle} है। `;
+    if (rawAnswers.length > 0) {
+      const firstAns = rawAnswers[0]?.selectedOption?.labelHi || rawAnswers[0]?.customVoiceText || '';
+      if (firstAns) text += `आपने बताया कि ${firstAns}। `;
+    }
+    if (digitizedDocument?.medications?.length > 0) {
+      text += `आपकी पूर्व पर्ची से ${digitizedDocument.medications.length} दवाइयां दर्ज कर ली गई हैं। `;
+    }
+    if (ayushAssessment) {
+      text += `आपका आयुर्वेदिक प्रकृति मूल्यांकन भी पूरा कर लिया गया है। `;
+    }
+    text += `कृपया टोकन प्राप्त करने के लिए पुष्टि करें।`;
+    return text;
+  }
+
+  let text = `Based on your consultation, your primary reason for today's visit is ${complaintTitle.toLowerCase()}. `;
+  if (rawAnswers.length > 0) {
+    const firstAns = rawAnswers[0]?.selectedOption?.labelEn || rawAnswers[0]?.customVoiceText || '';
+    if (firstAns) text += `You noted ${firstAns.toLowerCase()}. `;
+  }
+  if (digitizedDocument?.medications?.length > 0) {
+    text += `We have recorded ${digitizedDocument.medications.length} medications from your uploaded documents. `;
+  }
+  if (ayushAssessment) {
+    text += `Your Ayurvedic constitution assessment has been recorded. `;
+  }
+  text += `Please confirm to generate your OPD consultation token.`;
+  return text;
+}
+
+/**
+ * Compiles the complete structured 8-part clinical dossier
+ * Synthesizes BOTH conversational intake history AND digitized documents.
+ */
+export function compileClinicalDossier(session, language = 'en') {
   if (!session) return [];
 
-  const hpiText = generateHpiProse(session);
-  const doc = session.digitizedDocument;
-  const isJointPain = session.complaintId === 'joint_pain' || /joint|swelling/i.test(session.complaintTitle);
+  // If physician already edited and saved the summary, load the saved version directly
+  if (session.editedByPhysician && session.physicianEditedSummary) {
+    try {
+      const saved = typeof session.physicianEditedSummary === 'string'
+        ? JSON.parse(session.physicianEditedSummary)
+        : session.physicianEditedSummary;
+      if (Array.isArray(saved) && saved.length > 0) {
+        return saved;
+      }
+    } catch (e) {
+      console.warn('[compileClinicalDossier] Failed to parse physicianEditedSummary, regenerating:', e);
+    }
+  }
 
-  // 1. Chief Complaint Section
+  const isHi = language === 'hi' || language === 'Hindi';
+  const hpiText = generateHpiProse(session, language);
+  const doc = session.digitizedDocument;
+  const ayush = session.ayushAssessment;
+
+  // 1. CHIEF COMPLAINT (CC)
   const ccSection = {
     id: 'sec_cc',
     shortCode: 'CC',
-    title: 'Chief Complaint',
-    content: `${session.complaintTitle || 'General Medical Consultation'}${isJointPain ? ' (Joint Pain & Swelling Evaluation)' : ''}`,
+    title: isHi ? '1. मुख्य शिकायत (Chief Complaint)' : '1. Chief Complaint',
+    content: isHi
+      ? `मुख्य समस्या: ${session.complaintTitle || 'सामान्य परामर्श'}`
+      : `${session.complaintTitle || 'General Medical Consultation'} (Outpatient Triage)`,
     status: 'accepted',
     isEditing: false
   };
 
-  // 2. History of Present Illness Section
+  // 2. HISTORY OF PRESENT ILLNESS (HPI)
   const hpiSection = {
     id: 'sec_hpi',
     shortCode: 'HPI',
-    title: 'History of Present Illness (HPI)',
+    title: isHi ? '2. वर्तमान बीमारी का इतिहास (HPI)' : '2. History of Present Illness (HPI)',
     content: hpiText,
     status: 'accepted',
     isEditing: false
   };
 
-  // 3. Past Medical / Surgical History
-  let pmhxText = 'No prior medical/surgical records uploaded.';
+  // 3. PAST MEDICAL / SURGICAL / RADIOLOGY HISTORY (PMHx)
+  let pmhxContent = isHi ? 'कोई पूर्व चिकित्सीय रिकॉर्ड अपलोड नहीं।' : 'No documented prior medical or surgical hospital records uploaded.';
   if (doc?.diagnoses && doc.diagnoses.length > 0) {
-    pmhxText = `Extracted from previous health records:\n• ${doc.diagnoses.join('\n• ')}`;
+    pmhxContent = (isHi ? 'अपलोड किए गए पूर्व रिकॉर्ड से:\n• ' : 'Extracted from uploaded health records:\n• ') + doc.diagnoses.join('\n• ');
   }
   if (doc?.imagingFindings) {
-    pmhxText += `\n• Imaging Findings: ${doc.imagingFindings}`;
+    pmhxContent += (isHi ? '\n\nरेडियोलॉजी निष्कर्ष: ' : '\n\nRadiology Findings: ') + doc.imagingFindings;
   }
   const pmhxSection = {
     id: 'sec_pmhx',
     shortCode: 'PMHx',
-    title: 'Past Medical / Surgical / Radiology History',
-    content: pmhxText,
+    title: isHi ? '3. पूर्व चिकित्सीय व सर्जिकल इतिहास' : '3. Past Medical, Surgical & Radiology History',
+    content: pmhxContent,
     status: 'accepted',
     isEditing: false
   };
 
-  // 4. Medications & Allergies
-  let medsText = 'No current active medications captured.';
+  // 4. MEDICATIONS, ALLERGIES & DRUG INTERACTIONS (MEDS)
+  let medsContent = isHi ? 'वर्तमान में कोई सक्रिय दवा दर्ज नहीं।' : 'No active prescription medications documented.';
   if (doc?.medications && doc.medications.length > 0) {
-    medsText = 'Active Medications Extracted via OCR Scan:\n' + doc.medications.map(m => `• ${m.name} ${m.dose} — ${m.frequency}`).join('\n');
+    medsContent = (isHi ? 'सक्रिय दवाइयां (ओसीआर सत्यापित):\n' : 'Active Prescriptions (OCR Extracted):\n');
+    medsContent += doc.medications.map(m => `• ${m.name} ${m.dose || ''} — ${m.frequency || 'as directed'}`).join('\n');
   }
-  medsText += '\n\nAllergies: NKDA (No Known Drug Allergies reported in intake flow)';
+  medsContent += isHi 
+    ? '\n\nड्रग एलर्जी: ज्ञात कोई एलर्जी नहीं (NKDA)' 
+    : '\n\nAllergies: No Known Drug Allergies (NKDA) reported in intake flow.';
 
-  // If relevant lab values exist, append them to medication/investigation section
-  if (doc?.labValues && doc.labValues.length > 0) {
-    medsText += '\n\nRecent Diagnostic Laboratory Results:\n' + doc.labValues.map(l => `• ${l.test}: ${l.value} ${l.unit} [${l.flag}] (Ref: ${l.referenceRange})`).join('\n');
+  if (doc?.drugInteractions && doc.drugInteractions.length > 0) {
+    medsContent += isHi
+      ? `\n\n⚠️ संभावित दवा परस्पर-क्रिया (Drug Interactions):\n` + doc.drugInteractions.map(d => `• [${d.severity}] ${d.drug1} + ${d.drug2}: ${d.title}`).join('\n')
+      : `\n\n⚠️ Flagged Drug-Drug Interactions:\n` + doc.drugInteractions.map(d => `• [${d.severity}] ${d.drug1} + ${d.drug2}: ${d.title} (${d.clinicalRisk})`).join('\n');
   }
 
   const medsSection = {
     id: 'sec_meds',
     shortCode: 'MEDS',
-    title: 'Medications, Allergies & Diagnostic Labs',
-    content: medsText,
+    title: isHi ? '4. दवाइयां, एलर्जी व ड्रग इंटरैक्शन' : '4. Medications, Allergies & Drug Interactions',
+    content: medsContent,
     status: 'accepted',
     isEditing: false
   };
 
-  // 5. Family & Social History
+  // 5. FAMILY & SOCIAL HISTORY (FHx/SHx)
   const fshxSection = {
     id: 'sec_fshx',
     shortCode: 'FHx/SHx',
-    title: 'Family & Social History',
-    content: 'Not captured in automated kiosk flow. (Clinician to elicit if indicated for chronic management)',
+    title: isHi ? '5. पारिवारिक व सामाजिक इतिहास' : '5. Family & Social History',
+    content: isHi
+      ? 'पारिवारिक इतिहास कियोस्क फ्लो में दर्ज नहीं। (चिकित्सक परामर्श अनुसार पूछें)'
+      : 'Family & Social History: Not routinely captured in kiosk intake flow. To be evaluated during clinician review if indicated.',
     status: 'accepted',
     isEditing: false
   };
 
-  // 6. Review of Systems (ROS)
+  // 6. PERSONAL HISTORY (Diet, Sleep, Lifestyle, AYUSH)
+  let personalContent = isHi ? 'व्यक्तिगत आदतें: सामान्य दिनचर्या।' : 'Personal History: Routine diet and lifestyle habits.';
+  if (ayush) {
+    personalContent = isHi
+      ? `आयुर्वेदिक दशविध परीक्षा व व्यक्तिगत इतिहास:\n• प्रकृति (संविधान): ${ayush.prakriti?.labelHi || ayush.dominantDosha || 'वात-पित्त'}\n• विकृति (असंतुलन): ${ayush.vikriti?.labelHi || 'वात वृद्धि'}\n• अग्नि (पाचन शक्ति): ${ayush.agni?.labelHi || 'विषमाग्नि'}\n• कोष्ठ (मल प्रवृत्ति): ${ayush.koshtha?.labelHi || 'मध्यम'}\n• आहार-विहार: ${ayush.aharaVihara?.labelHi || 'संतुलित'}`
+      : `Ayurvedic Dashavidha Pariksha & Personal History:\n• Prakriti: ${ayush.prakriti?.labelEn || ayush.dominantDosha || 'Vata-Pitta'}\n• Vikriti: ${ayush.vikriti?.labelEn || 'Vata Imbalance'}\n• Agni (Digestion): ${ayush.agni?.labelEn || 'Vishamagni'}\n• Koshtha (Elimination): ${ayush.koshtha?.labelEn || 'Madhyama'}\n• Ahara-Vihara: ${ayush.aharaVihara?.labelEn || 'Balanced routine'}`;
+  }
+
+  const personalSection = {
+    id: 'sec_personal',
+    shortCode: 'PERSONAL',
+    title: isHi ? '6. व्यक्तिगत इतिहास व आयुष प्रकृति' : '6. Personal History & AYUSH Profile',
+    content: personalContent,
+    status: 'accepted',
+    isEditing: false,
+    isAyush: !!ayush,
+    rawAyushData: ayush
+  };
+
+  // 7. REVIEW OF SYSTEMS (ROS)
   const isFever = session.complaintId === 'fever';
   const isCough = session.complaintId === 'cough_breathlessness';
   const isAbdo = session.complaintId === 'abdominal_pain';
   const isChest = session.complaintId === 'chest_pain';
+  const isJoint = session.complaintId === 'joint_pain';
 
   const rosContent = [
-    `[Constitutional] Fever / Chills: ${isFever ? '✓ POSITIVE (Assessed)' : '✕ Not primary complaint'}`,
-    `[Musculoskeletal] Joint Pain / Swelling: ${isJointPain ? '✓ POSITIVE (Assessed in depth)' : '✕ Denied'}`,
-    `[Respiratory] Cough / Breathlessness: ${isCough ? '✓ POSITIVE (Assessed)' : '✕ Denied'}`,
-    `[Cardiovascular] Chest Pain / Squeezing: ${isChest ? '✓ POSITIVE (Assessed)' : '✕ Denied'}`,
-    `[Gastrointestinal] Abdominal Cramps / Vomiting: ${isAbdo ? '✓ POSITIVE (Assessed)' : '✕ Denied'}`,
-    `[Neurological] Focal Weakness / Facial Numbness: ${session.redFlagsTriggered?.length > 0 ? '⚠ FLAGGED FOR REVIEW' : '✕ Denied'}`
+    `[Constitutional] Fever / Chills: ${isFever ? '✓ POSITIVE' : '✕ Denied'}`,
+    `[Musculoskeletal] Joint Pain / Swelling: ${isJoint ? '✓ POSITIVE' : '✕ Denied'}`,
+    `[Respiratory] Cough / Dyspnea: ${isCough ? '✓ POSITIVE' : '✕ Denied'}`,
+    `[Cardiovascular] Chest Tightness: ${isChest ? '✓ POSITIVE' : '✕ Denied'}`,
+    `[Gastrointestinal] Abdominal Cramps: ${isAbdo ? '✓ POSITIVE' : '✕ Denied'}`
   ].join('\n');
 
   const rosSection = {
     id: 'sec_ros',
     shortCode: 'ROS',
-    title: 'Review of Systems (ROS Checklist)',
+    title: isHi ? '7. शारीरिक तंत्र समीक्षा (ROS Checklist)' : '7. Review of Systems (ROS Checklist)',
     content: rosContent,
     status: 'accepted',
     isEditing: false
   };
 
-  // 7. AYUSH Intake Dossier (Dashavidha Pariksha Formulation)
-  let ayushSection = null;
-  if (session.ayushAssessment) {
-    const ay = session.ayushAssessment;
-    const prakritiLabel = ay.prakriti?.labelEn || ay.prakriti?.labelHi || ay.dominantDosha || 'Vata-Pitta';
-    const vikritiLabel = ay.vikriti?.labelEn || ay.vikriti?.labelHi || ay.vikriti?.dosha || 'Vata Imbalance';
-    const agniLabel = ay.agni?.labelEn || ay.agni?.labelHi || ay.agni?.agniType || ay.agni || 'Vishamagni';
-    const koshthaLabel = ay.koshtha?.labelEn || ay.koshtha?.labelHi || ay.koshtha?.koshthaType || ay.koshtha || 'Madhyama';
-    const saraLabel = ay.sara?.labelEn || ay.sara?.grade || 'Madhyama Sara';
-    const samhananaLabel = ay.samhanana?.labelEn || ay.samhanana?.compactness || 'Madhyama Samhanana';
-    const sattvaLabel = ay.sattva?.labelEn || ay.sattva?.grade || 'Madhyama Sattva';
-    const satmyaLabel = ay.satmya?.labelEn || ay.satmya?.type || 'Madhyama Satmya';
-    const vyayamaLabel = ay.vyayamaShakti?.labelEn || ay.vyayamaShakti?.capacity || 'Madhyama Vyayama Shakti';
-    const lifestyleLabel = ay.aharaVihara?.labelEn || ay.aharaVihara?.pattern || ay.aharaVihara || 'Routine Diet & Sleep';
-
-    const ayushText = [
-      `🌿 AYUSH DASHAVIDHA PARIKSHA CLINICAL DOSSIER:`,
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `[1] DOSHA PRAKRITI & VIKRITI:`,
-      `• Dominant Constitutional Frame (Prakriti): ${prakritiLabel}`,
-      `• Active Morbidity & Imbalance (Vikriti): ${vikritiLabel}`,
-      ``,
-      `[2] METABOLISM & ELIMINATION (AGNI & KOSHTHA):`,
-      `• Digestive Fire (Agni): ${agniLabel}`,
-      `• Bowel Habit & Elimination (Koshtha): ${koshthaLabel}`,
-      ``,
-      `[3] DHATU & PHYSIQUE (SARA, SAMHANANA & SATMYA):`,
-      `• Tissue Excellence & Vitality (Sara): ${saraLabel}`,
-      `• Body Compactness & Musculoskeletal Firmness (Samhanana): ${samhananaLabel}`,
-      `• Adaptational Tolerance (Satmya): ${satmyaLabel}`,
-      ``,
-      `[4] PSYCHE & STAMINA (SATTVA & VYAYAMA SHAKTI):`,
-      `• Mental Resilience & Temperament (Sattva): ${sattvaLabel}`,
-      `• Physical Endurance & Work Capacity (Vyayama Shakti): ${vyayamaLabel}`,
-      ``,
-      `[5] AHARA-VIHARA ETIOLOGY (NIDANA & HABITS):`,
-      `• Dietary Patterns & Routine: ${lifestyleLabel}`,
-      ay.clarifyingHistory ? `• Clarifying Voice/Symptom Notes: "${ay.clarifyingHistory}"` : null,
-      ``,
-      `[6] AYURVEDIC CLINICAL SUMMARY:`,
-      `• ${ay.ayurvedicSummary || `${prakritiLabel} with ${vikritiLabel}. Managed in accordance with classical Chikitsa Sutra.`}`
-    ].filter(Boolean).join('\n');
-
-    ayushSection = {
-      id: 'sec_ayush',
-      shortCode: 'AYUSH',
-      title: 'AYUSH Clinical Assessment (Dashavidha Pariksha)',
-      content: ayushText,
-      status: 'accepted',
-      isEditing: false,
-      isAyush: true,
-      rawAyushData: ay
-    };
+  // 8. PRIOR INVESTIGATIONS SUMMARY (INV)
+  let invContent = isHi ? 'कोई पूर्व प्रयोगशाला रिपोर्ट उपलब्ध नहीं।' : 'No prior laboratory records attached.';
+  if (doc?.labValues && doc.labValues.length > 0) {
+    invContent = (isHi ? 'प्रयोगशाला जांच रिपोर्ट:\n' : 'Diagnostic Laboratory Results:\n') +
+      doc.labValues.map(l => `• ${l.test}: ${l.value} ${l.unit} [${l.flag || 'NORMAL'}] (Ref: ${l.referenceRange || 'Standard'})`).join('\n');
+  }
+  if (doc?.imagingFindings) {
+    invContent += (isHi ? '\n\nरेडियोलॉजी निष्कर्ष: ' : '\n\nRadiology Findings: ') + doc.imagingFindings;
   }
 
-  const sections = [ccSection, hpiSection, pmhxSection, medsSection, fshxSection, rosSection];
-  if (ayushSection) sections.push(ayushSection);
+  const invSection = {
+    id: 'sec_inv',
+    shortCode: 'INV',
+    title: isHi ? '8. पूर्व जांच रिपोर्ट सारांश (Investigations)' : '8. Prior Investigations Summary',
+    content: invContent,
+    status: 'accepted',
+    isEditing: false
+  };
 
-  return sections;
+  return [
+    ccSection,
+    hpiSection,
+    pmhxSection,
+    medsSection,
+    fshxSection,
+    personalSection,
+    rosSection,
+    invSection
+  ];
 }

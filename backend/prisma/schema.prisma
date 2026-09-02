@@ -40,12 +40,16 @@ model Session {
   status            String             @default("WAITING_OPD") // WAITING_OPD | TRIAGE_URGENT | COMPLETED | CALLED
   answers           String             // JSON stringified array of Q&A responses
   redFlagsTriggered String             @default("[]") // JSON stringified array
-  ayushAssessment   String?            // JSON stringified AYUSH dosha/agni data
-  patientId         String?
-  patient           Patient?           @relation(fields: [patientId], references: [id], onDelete: SetNull)
-  digitizedDocument DigitizedDocument?
-  redFlags          RedFlagAlert[]
-  hisPush           HisPushedRecord?
+  ayushAssessment        String?            // JSON stringified AYUSH dosha/agni data
+  editedByPhysician      Boolean            @default(false)
+  physicianEditedSummary String?            // JSON stringified physician accepted/amended sections
+  physicianSignedAt      DateTime?
+  physicianId            String?
+  patientId              String?
+  patient                Patient?           @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  digitizedDocument      DigitizedDocument?
+  redFlags               RedFlagAlert[]
+  hisPush                HisPushedRecord?
 }
 
 model DigitizedDocument {

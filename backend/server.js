@@ -19,6 +19,8 @@ const {
 const { getNextQuestion } = require('./services/dialogueEngine');
 const { getAyushClarifyingQuestion } = require('./services/ayushDialogueEngine');
 const { getSpeechServiceConfig, bhashiniTranscribeAudio, bhashiniSynthesizeSpeech } = require('./services/bhashiniService');
+const { validateFhirR4Bundle } = require('./services/fhirValidationService');
+const { generateSynthesizedDossier } = require('./services/clinicalSummaryService');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -847,6 +849,10 @@ app.get('/api/sessions', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
       answers: JSON.parse(s.answers || '[]'),
       redFlagsTriggered: JSON.parse(s.redFlagsTriggered || '[]'),
       ayushAssessment: s.ayushAssessment ? JSON.parse(s.ayushAssessment) : null,
+      editedByPhysician: s.editedByPhysician,
+      physicianEditedSummary: s.physicianEditedSummary ? JSON.parse(s.physicianEditedSummary) : null,
+      physicianSignedAt: s.physicianSignedAt,
+      physicianId: s.physicianId,
       patientDetails: s.patient ? {
         id: s.patient.id,
         name: s.patient.name,
@@ -879,11 +885,54 @@ app.get('/api/sessions', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
 });
 
 // ==============================================================================
-// 7. EMR / HOSPITAL HIS FHIR PUSH
+// 6b. PHYSICIAN EDIT & ACCEPT/AMEND SUMMARY PERSISTENCE (PHASE 7)
+// ==============================================================================
+app.post('/api/sessions/:id/physician-edit', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  const { sections, signed } = req.body;
+
+  try {
+    const updatedSession = await prisma.session.update({
+      where: { id },
+      data: {
+        editedByPhysician: true,
+        physicianEditedSummary: JSON.stringify(sections || []),
+        physicianSignedAt: signed ? new Date() : undefined,
+        physicianId: req.user?.id || 'dr_sunita_rao'
+      }
+    });
+
+    console.log(`👨‍⚕️ [PHYSICIAN EDIT] Session ${id} amended & persisted distinctly from AI draft.`);
+
+    res.json({
+      success: true,
+      message: 'Physician-edited summary persisted distinctly from AI draft.',
+      session: updatedSession
+    });
+  } catch (err) {
+    console.error('❌ [Physician Edit] Database error:', err);
+    res.status(500).json({ success: false, error: 'DB_ERROR', message: err.message });
+  }
+});
+
+// ==============================================================================
+// 7. EMR / HOSPITAL HIS FHIR PUSH (WITH STRICT STRUCTURAL VALIDATION)
 // ==============================================================================
 app.post('/api/his/push', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
   const { sessionId, tokenNumber, fhirBundle } = req.body || {};
   const emrRecordId = `EMR-REC-2026-${Math.floor(100000 + Math.random() * 900000)}`;
+
+  // Enforce structural FHIR R4 Bundle validation before sync
+  const validation = validateFhirR4Bundle(fhirBundle);
+  if (!validation.isValid) {
+    console.warn('❌ [HOSPITAL EMR] FHIR R4 Validation Failed:', validation.errors);
+    return res.status(422).json({
+      success: false,
+      error: 'FHIR_VALIDATION_FAILED',
+      message: 'FHIR Document Bundle failed structural validation standards.',
+      details: validation.errors
+    });
+  }
 
   try {
     // Check if the session exists in DB before linking foreign key
