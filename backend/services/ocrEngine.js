@@ -182,8 +182,11 @@ function extractTextWithPdf2Json(buffer) {
 }
 
 // ============================================================================
-// 3. SCANNED IMAGE EXTRACTOR & TESSERACT OCR
+// 3. SCANNED IMAGE PREPROCESSING & MULTILINGUAL TESSERACT OCR
 // ============================================================================
+const sharp = require('sharp');
+const { checkDrugInteractions, evaluateLabValue } = require('./clinicalDrugInteractionService');
+
 function extractJpegsFromPdfBuffer(pdfBuffer) {
   const jpegs = [];
   let offset = 0;
@@ -205,15 +208,65 @@ function extractJpegsFromPdfBuffer(pdfBuffer) {
   return jpegs;
 }
 
+/**
+ * Image Pre-Processing Pipeline using Sharp:
+ * - Auto-rotates according to EXIF orientation
+ * - Scales up low-resolution photos (min 1800px width for reliable text)
+ * - Converts to greyscale (eliminates ambient color noise)
+ * - Normalizes histogram (stretches contrast between ink and paper)
+ * - Sharpens edges (unsharp mask for clear letterforms)
+ */
+async function preprocessImageForOcr(imageBuffer) {
+  try {
+    const metadata = await sharp(imageBuffer).metadata();
+    let pipeline = sharp(imageBuffer).rotate();
+
+    if (metadata.width && metadata.width < 1500) {
+      pipeline = pipeline.resize({ width: 2000, withoutEnlargement: false });
+    }
+
+    const preprocessed = await pipeline
+      .grayscale()
+      .normalize()
+      .sharpen({ sigma: 1.2, m1: 1.5, m2: 0.7 })
+      .png()
+      .toBuffer();
+
+    console.log(`🖼️ [OCR Preprocessing] Enhanced with Sharp: contrast normalized + sharpened (${imageBuffer.length} -> ${preprocessed.length} bytes)`);
+    return preprocessed;
+  } catch (err) {
+    console.warn('⚠️ [OCR Preprocessing] Sharp enhancement fallback to raw buffer:', err.message);
+    return imageBuffer;
+  }
+}
+
+/**
+ * Multilingual Tesseract OCR runner (English + Hindi regional support)
+ * Captures raw text and OCR confidence score for low-confidence handwriting flagging.
+ */
 async function extractTextWithTesseract(imageBuffer) {
   try {
-    const worker = await createWorker('eng');
-    const { data } = await worker.recognize(imageBuffer);
+    const preprocessed = await preprocessImageForOcr(imageBuffer);
+    let worker;
+    try {
+      // Support English + Hindi bilingual Indian hospital documents
+      worker = await createWorker(['eng', 'hin']);
+    } catch (langErr) {
+      console.warn('⚠️ [Tesseract OCR] Regional language load fallback to eng:', langErr.message);
+      worker = await createWorker('eng');
+    }
+
+    const { data } = await worker.recognize(preprocessed);
     await worker.terminate();
-    return data.text || '';
+
+    const confidence = typeof data.confidence === 'number' ? data.confidence : 85;
+    return {
+      text: data.text || '',
+      confidence
+    };
   } catch (err) {
     console.error('❌ [Tesseract OCR] Error:', err.message);
-    return '';
+    return { text: '', confidence: 0 };
   }
 }
 
@@ -230,14 +283,14 @@ async function extractRawTextFromBuffer(buffer, mimeType, fileName = '') {
     let text = decodeUniversalPdfBuffer(buffer);
     if (text && text.trim().length > 40) {
       console.log(`✅ [OCR Engine] Universal PDF Stream & CMap decoder extracted ${text.length} chars.`);
-      return text;
+      return { text, confidenceScore: 0.98 };
     }
 
     // Priority 2: Coordinate-based pdf2json
     text = await extractTextWithPdf2Json(buffer);
     if (text && text.trim().length > 40) {
       console.log(`✅ [OCR Engine] pdf2json extracted ${text.length} chars.`);
-      return text;
+      return { text, confidenceScore: 0.95 };
     }
 
     // Priority 3: Scanned PDF image pages + Tesseract OCR
@@ -246,18 +299,22 @@ async function extractRawTextFromBuffer(buffer, mimeType, fileName = '') {
     if (jpegs.length > 0) {
       console.log(`🖼️ [OCR Engine] Found ${jpegs.length} embedded scanned image pages. Running Tesseract OCR...`);
       let ocrResults = [];
+      let totalConfidence = 0;
       for (const imgBuf of jpegs) {
-        const pageText = await extractTextWithTesseract(imgBuf);
-        if (pageText) ocrResults.push(pageText);
+        const pageResult = await extractTextWithTesseract(imgBuf);
+        if (pageResult.text) ocrResults.push(pageResult.text);
+        totalConfidence += pageResult.confidence;
       }
+      const avgConfidence = jpegs.length > 0 ? (totalConfidence / jpegs.length) / 100 : 0.70;
       text = ocrResults.join('\n\n');
-      return text || '';
+      return { text: text || '', confidenceScore: avgConfidence };
     }
-    return '';
+    return { text: '', confidenceScore: 0.50 };
   } else {
     // Direct Image (JPG, PNG, WebP)
-    console.log(`🖼️ [OCR Engine] Running Tesseract OCR on image (${buffer.length} bytes)...`);
-    return await extractTextWithTesseract(buffer);
+    console.log(`🖼️ [OCR Engine] Running preprocessed Tesseract OCR on image (${buffer.length} bytes)...`);
+    const result = await extractTextWithTesseract(buffer);
+    return { text: result.text || '', confidenceScore: result.confidence / 100 };
   }
 }
 
@@ -279,7 +336,7 @@ function isMedicalUnit(str) {
   return KNOWN_MEDICAL_UNITS.some(u => u.toLowerCase() === clean.toLowerCase());
 }
 
-function parseClinicalEntitiesFromText(rawText, fileName = '', complaintId = 'auto') {
+function parseClinicalEntitiesFromText(rawText, fileName = '', complaintId = 'auto', confidenceScore = 0.98, allPatientMedications = []) {
   const text = rawText || '';
   const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
 
@@ -573,6 +630,27 @@ function parseClinicalEntitiesFromText(rawText, fileName = '', complaintId = 'au
     else if (documentType === 'lab_report') diagnoses.push('Clinical Laboratory Evaluation');
   }
 
+  // Evaluate lab markers against Standard Reference Ranges (CBC, LFT, KFT, Lipids, Glycemic, Thyroid)
+  const evaluatedLabValues = labValues.map(lv => {
+    const evalResult = evaluateLabValue(lv.test, lv.value, lv.unit);
+    return {
+      ...lv,
+      referenceRange: lv.referenceRange || evalResult.referenceRange || '',
+      flag: (lv.flag && lv.flag !== 'NORMAL') ? lv.flag : evalResult.flag,
+      profile: evalResult.profile || 'General Clinical Chemistry'
+    };
+  });
+
+  // Cross-check drug-drug interactions across all extracted medications
+  const combinedMedList = [...medications, ...allPatientMedications];
+  const drugInteractions = checkDrugInteractions(combinedMedList);
+
+  const numericScore = typeof confidenceScore === 'number' ? confidenceScore : 0.98;
+  const isLowConfidence = numericScore < 0.65;
+  const confidenceWarning = isLowConfidence
+    ? 'Confidence: LOW — handwritten or low-contrast document. Please verify with patient/staff.'
+    : null;
+
   return {
     documentType,
     documentTitle,
@@ -582,10 +660,13 @@ function parseClinicalEntitiesFromText(rawText, fileName = '', complaintId = 'au
     patientName: patientName || 'Patient',
     imagingFindings,
     medications,
-    labValues,
+    labValues: evaluatedLabValues,
     diagnoses,
     rawText: text.trim(),
-    confidenceScore: 0.98
+    confidenceScore: Number(numericScore.toFixed(2)),
+    confidenceFlag: isLowConfidence ? 'LOW' : 'HIGH',
+    confidenceWarning,
+    drugInteractions
   };
 }
 
@@ -650,23 +731,41 @@ async function extractWithGeminiVision(buffer, mimeType, fileName) {
 // ============================================================================
 // 7. MASTER PROCESS ENTRY POINT
 // ============================================================================
-async function processDocumentWithOcr({ buffer, mimeType, fileName, complaintId }) {
+async function processDocumentWithOcr({ buffer, mimeType, fileName, complaintId, allPatientMedications = [] }) {
   if (buffer) {
     // 1. Try Gemini Vision if configured
     const geminiResult = await extractWithGeminiVision(buffer, mimeType, fileName);
     if (geminiResult && ((geminiResult.labValues && geminiResult.labValues.length > 0) || (geminiResult.medications && geminiResult.medications.length > 0) || geminiResult.imagingFindings)) {
+      // Evaluate standard reference ranges on Gemini lab values
+      if (Array.isArray(geminiResult.labValues)) {
+        geminiResult.labValues = geminiResult.labValues.map(lv => {
+          const evalResult = evaluateLabValue(lv.test, lv.value, lv.unit);
+          return {
+            ...lv,
+            referenceRange: lv.referenceRange || evalResult.referenceRange || '',
+            flag: (lv.flag && lv.flag !== 'NORMAL') ? lv.flag : evalResult.flag,
+            profile: evalResult.profile || 'General Clinical Chemistry'
+          };
+        });
+      }
+
+      // Cross-check drug interactions across patient medications
+      const combinedMeds = [...(geminiResult.medications || []), ...allPatientMedications];
+      geminiResult.drugInteractions = checkDrugInteractions(combinedMeds);
+      geminiResult.confidenceFlag = 'HIGH';
+      geminiResult.confidenceWarning = null;
       return geminiResult;
     }
 
-    // 2. High-Accuracy Universal Local Engine
-    const rawText = await extractRawTextFromBuffer(buffer, mimeType, fileName);
-    console.log(`📑 [OCR Engine] Total extracted raw text length: ${rawText.length} characters.`);
-    const parsed = parseClinicalEntitiesFromText(rawText, fileName, complaintId);
-    console.log(`✅ [OCR Engine] Final parsed ${parsed.labValues.length} lab markers, ${parsed.medications.length} medications, and ${parsed.diagnoses.length} diagnoses for ${fileName}.`);
+    // 2. High-Accuracy Universal Local Engine (with Sharp contrast preprocessing + Multilingual OCR)
+    const { text, confidenceScore } = await extractRawTextFromBuffer(buffer, mimeType, fileName);
+    console.log(`📑 [OCR Engine] Total extracted raw text length: ${text.length} characters (confidence: ${(confidenceScore * 100).toFixed(0)}%).`);
+    const parsed = parseClinicalEntitiesFromText(text, fileName, complaintId, confidenceScore, allPatientMedications);
+    console.log(`✅ [OCR Engine] Final parsed ${parsed.labValues.length} lab markers, ${parsed.medications.length} medications, ${parsed.diagnoses.length} diagnoses, and ${parsed.drugInteractions.length} drug interaction alerts.`);
     return parsed;
   }
 
-  return parseClinicalEntitiesFromText('', fileName, complaintId);
+  return parseClinicalEntitiesFromText('', fileName, complaintId, 0.98, allPatientMedications);
 }
 
 module.exports = {

@@ -616,18 +616,41 @@ app.post('/api/docai/extract', upload.single('documentFile'), async (req, res) =
   const fileName = req.body.fileName || (file ? file.originalname : 'uploaded_report.pdf');
   const documentType = req.body.documentType || 'auto';
   const complaintId = req.body.complaintId || 'auto';
+  const patientId = req.body.patientId || req.patient?.id;
 
   console.log(`\n📄 [DOCAI OCR] Processing real document: ${fileName} (Size: ${file ? file.size : 0} bytes, Complaint: ${complaintId})...`);
+
+  // Retrieve prior medications for cross-document drug-drug interaction detection
+  let allPatientMedications = [];
+  if (patientId) {
+    try {
+      const priorDocs = await prisma.digitizedDocument.findMany({
+        where: { session: { patientId } },
+        select: { medications: true }
+      });
+      for (const d of priorDocs) {
+        if (d.medications) {
+          try {
+            const meds = typeof d.medications === 'string' ? JSON.parse(d.medications) : d.medications;
+            if (Array.isArray(meds)) allPatientMedications.push(...meds);
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [DOCAI OCR] Failed to load prior medications:', e.message);
+    }
+  }
 
   try {
     const extractedData = await processDocumentWithOcr({
       buffer: file?.buffer,
       mimeType: file?.mimetype,
       fileName,
-      complaintId
+      complaintId,
+      allPatientMedications
     });
 
-    console.log(`✅ [DOCAI OCR] Parsed ${extractedData.labValues?.length || 0} lab markers & ${extractedData.medications?.length || 0} medications.`);
+    console.log(`✅ [DOCAI OCR] Parsed ${extractedData.labValues?.length || 0} lab markers & ${extractedData.medications?.length || 0} medications (${extractedData.drugInteractions?.length || 0} drug interactions).`);
 
     res.status(200).json({
       success: true,
@@ -641,6 +664,13 @@ app.post('/api/docai/extract', upload.single('documentFile'), async (req, res) =
       message: err.message
     });
   }
+});
+
+app.post('/api/docai/check-interactions', (req, res) => {
+  const { medications } = req.body;
+  const { checkDrugInteractions } = require('./services/clinicalDrugInteractionService');
+  const interactions = checkDrugInteractions(medications || []);
+  res.json({ success: true, interactions });
 });
 
 // ==============================================================================

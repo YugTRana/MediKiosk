@@ -11,8 +11,8 @@ import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js'
 import { convertSessionToFhirR4Bundle } from '../services/fhirGenerator.js';
 import { pushFhirToHospitalEmr } from '../services/abdmService.js';
 import { getLabFlagBadgeClass } from '../services/docAiService.js';
-import { speakText, cancelSpeech } from '../services/speechService.js';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
+import DocumentTimeline from '../components/DocumentTimeline.jsx';
 
 // Play Realistic Hospital Chime Synthesizer via Web Audio API
 function playHospitalChime() {
@@ -69,6 +69,7 @@ export default function DoctorDashboard() {
   const [emrPushSuccess, setEmrPushSuccess] = useState(null);
   const [callingPatientStatus, setCallingPatientStatus] = useState(null);
   const [isCallingAudio, setIsCallingAudio] = useState(false);
+  const [selectedTimelineDoc, setSelectedTimelineDoc] = useState(null);
 
   const fetchSessions = async () => {
     setLoading(true);
@@ -111,9 +112,34 @@ export default function DoctorDashboard() {
   }, [sessionsData.sessions]);
 
   const currentSession = useMemo(() => {
-    if (!selectedSessionId) return sortedSessions[0] || null;
-    return sortedSessions.find((s) => s.id === selectedSessionId) || sortedSessions[0] || null;
-  }, [selectedSessionId, sortedSessions]);
+    if (!sortedSessions || sortedSessions.length === 0) return null;
+    return sortedSessions.find(s => s.id === selectedSessionId) || sortedSessions[0];
+  }, [sortedSessions, selectedSessionId]);
+
+  // Aggregate all digitized documents for current patient across sessions for chronological timeline
+  const patientAllDocs = useMemo(() => {
+    if (!currentSession) return [];
+    const docs = [];
+    if (currentSession.digitizedDocument) {
+      docs.push({
+        ...currentSession.digitizedDocument,
+        sessionId: currentSession.id,
+        tokenNumber: currentSession.tokenNumber
+      });
+    }
+    if (currentSession.patientId && sessionsData.sessions) {
+      sessionsData.sessions.forEach(s => {
+        if (s.id !== currentSession.id && s.patientId === currentSession.patientId && s.digitizedDocument) {
+          docs.push({
+            ...s.digitizedDocument,
+            sessionId: s.id,
+            tokenNumber: s.tokenNumber
+          });
+        }
+      });
+    }
+    return docs;
+  }, [currentSession, sessionsData.sessions]);
 
   // Generate FHIR R4 Bundle for current session
   const fhirBundle = useMemo(() => {
@@ -692,17 +718,34 @@ export default function DoctorDashboard() {
                 </div>
               </div>
 
-              {/* Digitized Report & Lab Values Table (Interactive View) */}
-              {currentSession.digitizedDocument && (
-                <div className="border-2 border-emerald-300/80 bg-emerald-50/20 rounded-3xl p-5 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FlaskConical className="w-5 h-5 text-emerald-700" />
-                    <h3 className="text-base font-extrabold text-slate-900">
-                      Digitized Document & Diagnostic Lab Breakdown
-                    </h3>
+              {/* Digitized Report & Longitudinal Document Timeline (Interactive View) */}
+              {(patientAllDocs.length > 0 || currentSession.digitizedDocument) && (
+                <div className="border-2 border-emerald-300/80 bg-emerald-50/20 rounded-3xl p-5 shadow-sm flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FlaskConical className="w-5 h-5 text-emerald-700" />
+                      <h3 className="text-base font-extrabold text-slate-900">
+                        Longitudinal Patient Documents & Diagnostic Lab Breakdown
+                      </h3>
+                    </div>
+                    {patientAllDocs.length > 1 && (
+                      <span className="text-xs font-black text-emerald-900 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full">
+                        {patientAllDocs.length} Historical Records
+                      </span>
+                    )}
                   </div>
+
+                  {/* Visual Chronological Document Timeline Component */}
+                  {patientAllDocs.length > 0 && (
+                    <DocumentTimeline
+                      documents={patientAllDocs}
+                      selectedDocId={selectedTimelineDoc?.id || currentSession.digitizedDocument?.id}
+                      onSelectDocument={(doc) => setSelectedTimelineDoc(doc)}
+                    />
+                  )}
+
                   <DigitizedDocumentTable
-                    documentData={currentSession.digitizedDocument}
+                    documentData={selectedTimelineDoc || currentSession.digitizedDocument}
                     isDoctorView={true}
                   />
                 </div>

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
 import { 
   FlaskConical, Pill, Trash2, Edit2, Check, Plus, AlertCircle, 
   Sparkles, FileText, CheckCircle2, RotateCcw, ShieldCheck, 
-  ChevronDown, ChevronUp, Stethoscope, Building, Calendar, User
+  ChevronDown, ChevronUp, Stethoscope, Building, Calendar, User,
+  AlertTriangle, ShieldAlert
 } from 'lucide-react';
 import { getLabFlagBadgeClass } from '../services/docAiService.js';
 
@@ -238,6 +238,67 @@ export default function DigitizedDocumentTable({
                 {d}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Low Confidence OCR Warning Banner (Handwritten / Low-Contrast Document) */}
+        {(data.confidenceFlag === 'LOW' || (data.confidenceScore && data.confidenceScore < 0.65)) && (
+          <div className="mt-3 p-3.5 bg-amber-500/10 border-2 border-amber-400/50 rounded-xl flex items-start gap-2.5 text-amber-200">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <span className="font-black text-amber-300 block">
+                ⚠️ Confidence: LOW ({(Number(data.confidenceScore || 0.58) * 100).toFixed(0)}%) — Handwritten or Photographed Document
+              </span>
+              <p className="mt-0.5 text-amber-100 font-medium">
+                OCR confidence is below standard threshold. Please verify extracted drug names, dosages, and test values with the patient or hospital records before ordering.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Multi-Drug Interaction Alert Panel (Module B Intelligence) */}
+        {data.drugInteractions && data.drugInteractions.length > 0 && (
+          <div className="mt-3 p-4 bg-red-950/80 border-2 border-red-500/70 rounded-xl flex flex-col gap-2.5 text-red-100 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-red-400" />
+                <span className="text-xs font-black text-white">
+                  Cross-Document Drug-Drug Interactions Detected ({data.drugInteractions.length})
+                </span>
+              </div>
+              <span className="text-[9px] font-extrabold uppercase bg-red-900/80 text-red-300 border border-red-700 px-2 py-0.5 rounded-full">
+                Clinical Starter Database
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {data.drugInteractions.map((inter, idx) => (
+                <div key={idx} className="bg-red-900/30 border border-red-500/30 p-2.5 rounded-lg flex flex-col gap-1 text-[11px]">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-amber-300">
+                      ⚡ {inter.drug1} + {inter.drug2}
+                    </span>
+                    <span className={`text-[9px] font-black px-1.5 py-0.2 rounded uppercase ${
+                      inter.severity === 'CRITICAL' 
+                        ? 'bg-red-600 text-white' 
+                        : 'bg-amber-600 text-white'
+                    }`}>
+                      {inter.severity} RISK
+                    </span>
+                  </div>
+                  <span className="font-bold text-white text-xs">{inter.title}</span>
+                  <p className="text-red-200">
+                    <strong>Mechanism:</strong> {inter.mechanism}
+                  </p>
+                  <p className="text-red-200">
+                    <strong>Risk:</strong> {inter.clinicalRisk}
+                  </p>
+                  <p className="text-emerald-300 font-semibold bg-emerald-950/40 p-1.5 rounded border border-emerald-800/60">
+                    <strong>Guidance:</strong> {inter.recommendation}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
