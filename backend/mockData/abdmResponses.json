@@ -1,0 +1,30 @@
+{
+  "verificationStatus": "SUCCESS",
+  "abhaDetails": {
+    "abhaAddress": "ramesh.sharma@abdm",
+    "abhaNumber": "91-8472-1029-4821",
+    "fullName": "Ramesh Chandra Sharma",
+    "gender": "M",
+    "dateOfBirth": "1958-04-12",
+    "mobile": "+91-9876543210",
+    "kycVerified": true,
+    "linkedRecordsCount": 4
+  },
+  "healthRecords": [
+    {
+      "recordId": "rec_8841",
+      "type": "OPConsultation",
+      "date": "2026-05-14",
+      "hospitalName": "District Civil Hospital",
+      "doctorName": "Dr. A. K. Verma",
+      "diagnosis": "Type 2 Diabetes Mellitus"
+    },
+    {
+      "recordId": "rec_8842",
+      "type": "LabReport",
+      "date": "2026-05-14",
+      "title": "HbA1c & Fasting Lipid Profile",
+      "hba1c": "7.2%"
+    }
+  ]
+}

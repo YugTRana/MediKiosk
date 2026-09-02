@@ -1,0 +1,26 @@
+{
+  "hospitalId": "HOSP-IND-409",
+  "systemStatus": "ONLINE",
+  "queueInfo": {
+    "department": "General Medicine",
+    "totalPatientsToday": 42,
+    "currentlyServingToken": "A-11",
+    "estimatedWaitTimeMinutes": 15
+  },
+  "doctorAvailability": [
+    {
+      "doctorId": "DOC-101",
+      "doctorName": "Dr. Sunita Rao",
+      "specialty": "General Physician",
+      "roomNumber": "104",
+      "isAvailable": true
+    },
+    {
+      "doctorId": "DOC-102",
+      "doctorName": "Dr. Rajesh Gupta",
+      "specialty": "Cardiology",
+      "roomNumber": "108",
+      "isAvailable": true
+    }
+  ]
+}

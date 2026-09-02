@@ -1,0 +1,40 @@
+[
+  {
+    "sessionId": "sess_1001",
+    "patientId": "P-98421",
+    "abhaId": "91-8472-1029-4821",
+    "patientName": "Ramesh Chandra Sharma",
+    "age": 68,
+    "gender": "Male",
+    "preferredLanguage": "Hindi",
+    "checkInTime": "2026-09-02T10:15:00Z",
+    "vitals": {
+      "bloodPressure": "138/86",
+      "heartRate": 74,
+      "temperature": 98.4,
+      "oxygenSat": 97
+    },
+    "chiefComplaint": "Routine diabetes checkup and mild joint pain",
+    "status": "Checked-in",
+    "tokenNumber": "A-12"
+  },
+  {
+    "sessionId": "sess_1002",
+    "patientId": "P-98422",
+    "abhaId": "91-3829-1928-4019",
+    "patientName": "Sunita Devi",
+    "age": 62,
+    "gender": "Female",
+    "preferredLanguage": "English",
+    "checkInTime": "2026-09-02T10:45:00Z",
+    "vitals": {
+      "bloodPressure": "124/80",
+      "heartRate": 68,
+      "temperature": 98.6,
+      "oxygenSat": 99
+    },
+    "chiefComplaint": "Follow-up for hypertension medicine renewal",
+    "status": "Waiting",
+    "tokenNumber": "A-13"
+  }
+]

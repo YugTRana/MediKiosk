@@ -1,0 +1,300 @@
+{
+  "complaints": [
+    {
+      "id": "fever",
+      "titleEn": "Fever / Body Temperature",
+      "titleHi": "बुखार / शरीर का तापमान",
+      "iconName": "Thermometer",
+      "descriptionEn": "High body temperature, chills, or feverish feeling",
+      "descriptionHi": "तेज बुखार, ठंड लगना या शरीर तपना",
+      "color": "amber",
+      "questions": [
+        {
+          "id": "fever_onset",
+          "dimension": "Onset",
+          "questionEn": "When did your fever start?",
+          "questionHi": "आपका बुखार कब शुरू हुआ था?",
+          "options": [
+            { "labelEn": "Today (Just started)", "labelHi": "आज ही शुरू हुआ", "value": "today" },
+            { "labelEn": "1 - 2 Days ago", "labelHi": "1 - 2 दिन पहले", "value": "1-2_days" },
+            { "labelEn": "3 - 5 Days ago", "labelHi": "3 - 5 दिन पहले", "value": "3-5_days" },
+            { "labelEn": "More than 1 week ago", "labelHi": "1 हफ्ते से ज्यादा", "value": "1_week_plus" }
+          ]
+        },
+        {
+          "id": "fever_character",
+          "dimension": "Character",
+          "questionEn": "How does the fever feel?",
+          "questionHi": "बुखार किस तरह का महसूस होता है?",
+          "options": [
+            { "labelEn": "Continuous high fever", "labelHi": "लगातार तेज बुखार", "value": "continuous_high" },
+            { "labelEn": "Comes and goes with chills", "labelHi": "ठंड लगकर आता-जाता है", "value": "chills_intermittent" },
+            { "labelEn": "Mild low-grade fever", "labelHi": "हल्का बुखार", "value": "low_grade" },
+            { "labelEn": "Spikes mainly in evening", "labelHi": "शाम के वक्त ज्यादा बढ़ता है", "value": "evening_spike" }
+          ]
+        },
+        {
+          "id": "fever_associations",
+          "dimension": "Associations",
+          "questionEn": "Do you have any of these other symptoms?",
+          "questionHi": "क्या आपको इनमें से कोई और लक्षण भी हैं?",
+          "options": [
+            { "labelEn": "Severe body aches & fatigue", "labelHi": "शरीर में तेज दर्द और थकान", "value": "body_ache" },
+            { "labelEn": "Skin rash or spots", "labelHi": "त्वचा पर दाने या चकत्ते", "value": "skin_rash" },
+            { "labelEn": "Severe headache & eye pain", "labelHi": "सिरदर्द और आंखों में दर्द", "value": "headache_eyepain" },
+            { "labelEn": "Weakness or numbness in arms/legs", "labelHi": "हाथ-पैर में कमजोरी या सुन्नपन", "value": "weakness_numbness", "isRedFlag": true }
+          ]
+        },
+        {
+          "id": "fever_severity",
+          "dimension": "Severity",
+          "questionEn": "How uncomfortable is the fever right now?",
+          "questionHi": "अभी तकलीफ कितनी ज्यादा है?",
+          "options": [
+            { "labelEn": "Mild (Manageable)", "labelHi": "हल्की तकलीफ", "value": "mild" },
+            { "labelEn": "Moderate (Uncomfortable)", "labelHi": "मध्यम तकलीफ", "value": "moderate" },
+            { "labelEn": "Severe (Very weak)", "labelHi": "बहुत तेज (अत्यधिक कमजोरी)", "value": "severe" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cough_breathlessness",
+      "titleEn": "Cough / Breathlessness",
+      "titleHi": "खांसी / सांस लेने में तकलीफ",
+      "iconName": "Wind",
+      "descriptionEn": "Coughing, wheezing, or difficulty breathing",
+      "descriptionHi": "खांसी, सांस फूलना या सीने में जकड़न",
+      "color": "blue",
+      "questions": [
+        {
+          "id": "cough_onset",
+          "dimension": "Onset",
+          "questionEn": "How long have you had trouble breathing or coughing?",
+          "questionHi": "आपको सांस फूलने या खांसी की दिक्कत कब से है?",
+          "options": [
+            { "labelEn": "Sudden onset today", "labelHi": "आज अचानक शुरू हुई", "value": "sudden_today" },
+            { "labelEn": "Few days ago", "labelHi": "कुछ दिनों से", "value": "few_days" },
+            { "labelEn": "Long term / Chronic", "labelHi": "लंबे समय से (पुरानी बीमारी)", "value": "chronic" }
+          ]
+        },
+        {
+          "id": "cough_character",
+          "dimension": "Character",
+          "questionEn": "What type of cough or breathing difficulty is it?",
+          "questionHi": "खांसी या सांस की तकलीफ किस तरह की है?",
+          "options": [
+            { "labelEn": "Dry cough", "labelHi": "सूखी खांसी", "value": "dry_cough" },
+            { "labelEn": "Cough with phlegm/mucus", "labelHi": "बलगम वाली खांसी", "value": "phlegm_cough" },
+            { "labelEn": "Wheezing / Whistling sound", "labelHi": "सांस में सीटी की आवाज", "value": "wheezing" },
+            { "labelEn": "Gasping for air", "labelHi": "सांस खींचने में भारी दिक्कत", "value": "gasping" }
+          ]
+        },
+        {
+          "id": "cough_severity",
+          "dimension": "Severity",
+          "questionEn": "Rate your breathing difficulty from 1 (Mild) to 10 (Severe):",
+          "questionHi": "सांस की तकलीफ को 1 (कम) से 10 (अत्यधिक) पर आंकें:",
+          "options": [
+            { "labelEn": "1 - 3: Mild (Slight breathlessness)", "labelHi": "1 - 3: हल्की सांस फूलना", "value": "3" },
+            { "labelEn": "4 - 7: Moderate (Hard to walk/talk)", "labelHi": "4 - 7: चलने-बोलने में दिक्कत", "value": "6" },
+            { "labelEn": "8 - 10: Severe (Unable to catch breath)", "labelHi": "8 - 10: सांस नहीं आ पा रही (गंभीर)", "value": "9", "isRedFlag": true }
+          ]
+        },
+        {
+          "id": "cough_associations",
+          "dimension": "Associations",
+          "questionEn": "Do you notice any accompanying signs?",
+          "questionHi": "क्या साथ में ये लक्षण भी हैं?",
+          "options": [
+            { "labelEn": "Fever & Chills", "labelHi": "बुखार और ठंड", "value": "fever_chills" },
+            { "labelEn": "Chest tightness", "labelHi": "छाती में जकड़न", "value": "chest_tightness" },
+            { "labelEn": "One-sided weakness or numbness", "labelHi": "शरीर के एक तरफ कमजोरी/सुन्नपन", "value": "weakness_numbness", "isRedFlag": true },
+            { "labelEn": "None of the above", "labelHi": "इनमें से कोई नहीं", "value": "none" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "abdominal_pain",
+      "titleEn": "Abdominal Pain",
+      "titleHi": "पेट में दर्द",
+      "iconName": "Activity",
+      "descriptionEn": "Stomach cramps, sharp pain, or digestive discomfort",
+      "descriptionHi": "पेट में ऐंठन, मरोड़ या तेज दर्द",
+      "color": "emerald",
+      "questions": [
+        {
+          "id": "abdo_site",
+          "dimension": "Site",
+          "questionEn": "Where in your stomach do you feel the pain?",
+          "questionHi": "पेट में दर्द किस जगह महसूस हो रहा है?",
+          "options": [
+            { "labelEn": "Upper stomach (below ribs)", "labelHi": "पेट के ऊपरी हिस्से में", "value": "upper_stomach" },
+            { "labelEn": "Lower right side", "labelHi": "दाहिनी तरफ नीचे", "value": "lower_right" },
+            { "labelEn": "Lower left side", "labelHi": "बाईं तरफ नीचे", "value": "lower_left" },
+            { "labelEn": "All over the belly", "labelHi": "पूरे पेट में फैला हुआ", "value": "generalized" }
+          ]
+        },
+        {
+          "id": "abdo_character",
+          "dimension": "Character",
+          "questionEn": "How does the pain feel?",
+          "questionHi": "दर्द की प्रकृति कैसी है?",
+          "options": [
+            { "labelEn": "Sharp / Stabbing pain", "labelHi": "सुई चुभने जैसा तेज दर्द", "value": "sharp" },
+            { "labelEn": "Cramping / Twisting waves", "labelHi": "ऐंठन या मरोड़ वाला दर्द", "value": "cramping" },
+            { "labelEn": "Dull continuous ache", "labelHi": "धीमा लगातार बना रहने वाला दर्द", "value": "dull_ache" },
+            { "labelEn": "Burning sensation", "labelHi": "जलन महसूस होना", "value": "burning" }
+          ]
+        },
+        {
+          "id": "abdo_radiation",
+          "dimension": "Radiation",
+          "questionEn": "Does the pain travel to any other area?",
+          "questionHi": "क्या दर्द किसी और जगह भी फैलता है?",
+          "options": [
+            { "labelEn": "Stays in one spot", "labelHi": "एक ही जगह रहता है", "value": "local" },
+            { "labelEn": "Goes to the back", "labelHi": "पीठ की तरफ जाता है", "value": "back" },
+            { "labelEn": "Goes to groin/thigh", "labelHi": "जांघ की तरफ जाता है", "value": "groin" }
+          ]
+        },
+        {
+          "id": "abdo_associations",
+          "dimension": "Associations",
+          "questionEn": "Are you experiencing vomiting or digestion issues?",
+          "questionHi": "क्या उल्टी या दस्त की शिकायत भी है?",
+          "options": [
+            { "labelEn": "Nausea or Vomiting", "labelHi": "जी मिचलाना या उल्टी", "value": "nausea_vomiting" },
+            { "labelEn": "Loose stools / Diarrhea", "labelHi": "दस्त / दस्त लगना", "value": "diarrhea" },
+            { "labelEn": "Inability to pass gas/stool", "labelHi": "गैस या लैट्रिन न होना", "value": "constipation" },
+            { "labelEn": "Sudden arm/face numbness", "labelHi": "अचानक चेहरे या हाथ का सुन्न पड़ना", "value": "numbness", "isRedFlag": true }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chest_pain",
+      "titleEn": "Chest Pain / Discomfort",
+      "titleHi": "सीने में दर्द / भारीपन",
+      "iconName": "HeartPulse",
+      "descriptionEn": "Pressure, tightness, or pain in chest",
+      "descriptionHi": "सीने में दबाव, दर्द या भारीपन की शिकायत",
+      "color": "rose",
+      "questions": [
+        {
+          "id": "chest_site",
+          "dimension": "Site",
+          "questionEn": "Where exactly is the pain located?",
+          "questionHi": "दर्द ठीक किस जगह पर है?",
+          "options": [
+            { "labelEn": "Center of chest", "labelHi": "सीने के ठीक बीच में", "value": "center" },
+            { "labelEn": "Left side of chest", "labelHi": "सीने की बाईं तरफ", "value": "left_chest" },
+            { "labelEn": "Right side of chest", "labelHi": "सीने की दाहिनी तरफ", "value": "right_chest" }
+          ]
+        },
+        {
+          "id": "chest_character",
+          "dimension": "Character",
+          "questionEn": "What type of sensation are you experiencing?",
+          "questionHi": "आपको सीने में कैसा महसूस हो रहा है?",
+          "options": [
+            { "labelEn": "Heavy pressure / Squeezing tightness", "labelHi": "भारी दबाव या घुटन महसूस होना", "value": "pressure_tightness" },
+            { "labelEn": "Sharp pain on deep breath", "labelHi": "गहरी सांस लेने पर सुई सा चुभना", "value": "sharp_breath" },
+            { "labelEn": "Burning sensation (Gas/Acidity)", "labelHi": "जलन महसूस होना (गैस/एसिडिटी)", "value": "burning" }
+          ]
+        },
+        {
+          "id": "chest_radiation",
+          "dimension": "Radiation",
+          "questionEn": "Does the pain spread anywhere else?",
+          "questionHi": "क्या यह दर्द कहीं और फैलता है?",
+          "options": [
+            { "labelEn": "Spreads to Left Arm, Jaw or Back", "labelHi": "बाएं हाथ, जबड़े या पीठ की ओर", "value": "left_arm_jaw", "isRedFlag": true },
+            { "labelEn": "Spreads to neck or stomach", "labelHi": "गर्दन या पेट की ओर", "value": "neck_stomach" },
+            { "labelEn": "Does not spread", "labelHi": "कहीं नहीं फैलता", "value": "none" }
+          ]
+        },
+        {
+          "id": "chest_associations",
+          "dimension": "Associations",
+          "questionEn": "Do you have profuse sweating or difficulty breathing?",
+          "questionHi": "क्या आपको पसीना या सांस फूलने की समस्या है?",
+          "options": [
+            { "labelEn": "Cold Sweating / Diaphoresis", "labelHi": "अत्यधिक ठंडा पसीना आना", "value": "sweating_diaphoresis", "isRedFlag": true },
+            { "labelEn": "Shortness of breath & Dizziness", "labelHi": "सांस फूलना और चक्कर आना", "value": "breathlessness_dizziness", "isRedFlag": true },
+            { "labelEn": "Nausea only", "labelHi": "केवल जी मिचलाना", "value": "nausea" },
+            { "labelEn": "None", "labelHi": "कोई अन्य लक्षण नहीं", "value": "none" }
+          ]
+        },
+        {
+          "id": "chest_severity",
+          "dimension": "Severity",
+          "questionEn": "Rate the pain severity from 1 to 10:",
+          "questionHi": "दर्द की तीव्रता 1 से 10 के बीच बताएं:",
+          "options": [
+            { "labelEn": "1 - 4: Mild / Tolerable", "labelHi": "1 - 4: सहने योग्य", "value": "3" },
+            { "labelEn": "5 - 7: Moderate Pain", "labelHi": "5 - 7: मध्यम दर्द", "value": "6" },
+            { "labelEn": "8 - 10: Severe / Unbearable Pain", "labelHi": "8 - 10: अत्यधिक असहनीय दर्द", "value": "9", "isRedFlag": true }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "joint_pain",
+      "titleEn": "Joint Pain / Swelling",
+      "titleHi": "जोड़ों में दर्द / सूजन",
+      "iconName": "Bone",
+      "descriptionEn": "Knee, wrist, hip, or finger joint stiffness",
+      "descriptionHi": "घुटने, हाथ, रीढ़ या जोड़ों में दर्द व सूजन",
+      "color": "purple",
+      "questions": [
+        {
+          "id": "joint_site",
+          "dimension": "Site",
+          "questionEn": "Which joints are hurting?",
+          "questionHi": "किस जोड़ में दर्द है?",
+          "options": [
+            { "labelEn": "Knees", "labelHi": "घुटनों में", "value": "knees" },
+            { "labelEn": "Hands / Fingers / Wrists", "labelHi": "हाथों या अंगुलियों में", "value": "hands_wrists" },
+            { "labelEn": "Hips / Back", "labelHi": "कमर या कूल्हे में", "value": "hips_back" },
+            { "labelEn": "Multiple joints all over", "labelHi": "शरीर के कई जोड़ों में", "value": "multiple" }
+          ]
+        },
+        {
+          "id": "joint_character",
+          "dimension": "Character",
+          "questionEn": "Do you have swelling or morning stiffness?",
+          "questionHi": "क्या सूजन या सुबह जकड़न महसूस होती है?",
+          "options": [
+            { "labelEn": "Morning stiffness (> 30 mins)", "labelHi": "सुबह उठने पर 30 मिनट से अधिक जकड़न", "value": "morning_stiffness" },
+            { "labelEn": "Visible swelling & redness", "labelHi": "दिखने वाली सूजन और लालिमा", "value": "swelling_redness" },
+            { "labelEn": "Pain mainly while walking/standing", "labelHi": "चलने-फिरने पर दर्द होना", "value": "pain_on_movement" }
+          ]
+        },
+        {
+          "id": "joint_exacerbating",
+          "dimension": "Exacerbating / Relieving",
+          "questionEn": "What makes the pain better or worse?",
+          "questionHi": "दर्द किस चीज से बढ़ता या घटता है?",
+          "options": [
+            { "labelEn": "Worse with cold weather / Rest", "labelHi": "ठंड या आराम करने पर बढ़ता है", "value": "worse_cold_rest" },
+            { "labelEn": "Worse with stairs / Heavy activity", "labelHi": "सीढ़ियां चढ़ने या काम पर बढ़ता है", "value": "worse_activity" },
+            { "labelEn": "Better after applying warm compress", "labelHi": "गरम सेंक से आराम मिलता है", "value": "better_heat" }
+          ]
+        },
+        {
+          "id": "joint_associations",
+          "dimension": "Associations",
+          "questionEn": "Do you have any other weakness?",
+          "questionHi": "क्या आपको कोई अन्य कमजोरी भी है?",
+          "options": [
+            { "labelEn": "Fever with joint swelling", "labelHi": "जोड़ों की सूजन के साथ बुखार", "value": "fever" },
+            { "labelEn": "Sudden one-sided arm/face paralysis", "labelHi": "अचानक एक तरफ पक्षाघात या सुन्नपन", "value": "paralysis_numbness", "isRedFlag": true },
+            { "labelEn": "No other symptoms", "labelHi": "कोई और लक्षण नहीं", "value": "none" }
+          ]
+        }
+      ]
+    }
+  ]
+}
