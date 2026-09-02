@@ -16,6 +16,7 @@ const {
   updatePatientProfile, 
   deletePatientProfile 
 } = require('./services/authService');
+const { getNextQuestion } = require('./services/dialogueEngine');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -103,13 +104,7 @@ app.get('/api/dialogue-flows', async (req, res) => {
 });
 
 // ==============================================================================
-const { 
-  registerPatient, 
-  loginPatient, 
-  getAllPatients, 
-  updatePatientProfile, 
-  deletePatientProfile 
-} = require('./services/authService');
+
 
 // ==============================================================================
 // 3. PATIENT AUTHENTICATION & ADMIN MANAGEMENT ENDPOINTS
@@ -498,7 +493,21 @@ app.get('/api/admin/metrics', async (req, res) => {
 });
 
 // ==============================================================================
-// 4. REAL OCR & DOCUMENT DIGITIZATION (PDF & PHOTO SCANNING)
+// 4a. DIALOGUE ENGINE (LLM ADAPTIVE QUESTIONING)
+// ==============================================================================
+app.post('/api/dialogue/next-question', async (req, res) => {
+  const { complaintId, complaintTitle, history, patientMetadata } = req.body;
+  try {
+    const nextQuestion = await getNextQuestion({ complaintId, complaintTitle, history, patientMetadata });
+    res.json(nextQuestion);
+  } catch (error) {
+    console.error('Error getting next question:', error);
+    res.status(500).json({ success: false, message: 'Failed to get next question' });
+  }
+});
+
+// ==============================================================================
+// 5. OCR DOCUMENT DIGITIZATION (DocAI)
 // ==============================================================================
 app.post('/api/docai/extract', upload.single('documentFile'), async (req, res) => {
   const file = req.file;

@@ -77,6 +77,8 @@ export default function KioskPage() {
 
   // Patient Input Data for Allopathic SOCRATES
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [currentDynamicQuestion, setCurrentDynamicQuestion] = useState(null);
+  const [isThinking, setIsThinking] = useState(false);
   const [answers, setAnswers] = useState({});
 
   // Patient Input Data for AYUSH Dashavidha Pariksha
@@ -385,17 +387,17 @@ export default function KioskPage() {
   };
 
   // SOCRATES Answer
-  const handleAnswerQuestion = (optionObj = null, freeText = '') => {
+  const handleAnswerQuestion = async (optionObj = null, freeText = '') => {
     cancelSpeech();
     if (isListening && recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (e) {}
       setIsListening(false);
     }
 
-    const currentQuestion = selectedComplaint.questions[currentQuestionIndex];
+    const currentQuestion = currentDynamicQuestion || selectedComplaint.questions[currentQuestionIndex];
     const answerEntry = {
       questionId: currentQuestion.id,
-      dimension: currentQuestion.dimension,
+      dimension: currentQuestion.dimension || "Adaptive",
       questionText: (selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? currentQuestion.questionHi : currentQuestion.questionEn,
       selectedOption: optionObj,
       customVoiceText: freeText,
@@ -420,17 +422,60 @@ export default function KioskPage() {
       logRedFlagToBackend(redFlagCheck, answerEntry);
     }
 
-    if (currentQuestionIndex < selectedComplaint.questions.length - 1) {
-      const nextIdx = currentQuestionIndex + 1;
-      setCurrentQuestionIndex(nextIdx);
-      setVoiceText('');
-      speakCurrentQuestion(selectedComplaint.questions[nextIdx]);
-    } else {
-      handleSubmitSession({
-        finalAnswers: Object.values(updatedAnswers),
-        finalRedFlags: updatedFlags,
-        ayushData: null
+    // Call Backend for Next Adaptive Question
+    setIsThinking(true);
+    setVoiceText('');
+    try {
+      const historyArr = Object.values(updatedAnswers).map(a => ({
+        question: a.questionText,
+        answer: a.customVoiceText || a.selectedOption?.labelEn || a.selectedOption?.labelHi
+      }));
+
+      const payload = {
+        complaintId: selectedComplaint.id,
+        complaintTitle: selectedLanguage === 'हिंदी' ? selectedComplaint.titleHi : selectedComplaint.titleEn,
+        history: historyArr,
+        patientMetadata: verifiedPatient 
+          ? { age: verifiedPatient.age, gender: verifiedPatient.gender, language: selectedLanguage } 
+          : { age: 30, gender: 'Male', language: selectedLanguage }
+      };
+
+      const res = await fetch('http://localhost:3000/api/dialogue/next-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
+      
+      const data = await res.json();
+
+      if (data.isComplete) {
+        handleSubmitSession({
+          finalAnswers: Object.values(updatedAnswers),
+          finalRedFlags: updatedFlags,
+          ayushData: null
+        });
+      } else {
+        // We received the next question
+        setCurrentDynamicQuestion(data.data);
+        speakCurrentQuestion(data.data);
+      }
+    } catch (err) {
+      console.warn('[Kiosk] Adaptive questioning failed, falling back to local index', err);
+      if (currentQuestionIndex < selectedComplaint.questions.length - 1) {
+        const nextIdx = currentQuestionIndex + 1;
+        setCurrentQuestionIndex(nextIdx);
+        const nextQ = selectedComplaint.questions[nextIdx];
+        setCurrentDynamicQuestion(nextQ);
+        speakCurrentQuestion(nextQ);
+      } else {
+        handleSubmitSession({
+          finalAnswers: Object.values(updatedAnswers),
+          finalRedFlags: updatedFlags,
+          ayushData: null
+        });
+      }
+    } finally {
+      setIsThinking(false);
     }
   };
 
@@ -1295,7 +1340,7 @@ export default function KioskPage() {
                 <ArrowLeft className="w-4 h-4" /> Change Complaint
               </button>
               <span className="bg-slate-100 px-3 py-1 rounded-full text-slate-700 border border-slate-200">
-                Question {currentQuestionIndex + 1} of {selectedComplaint.questions.length} • <strong>{selectedComplaint.questions[currentQuestionIndex].dimension}</strong>
+                Question {Object.keys(answers).length + 1} {currentDynamicQuestion ? '' : `of ${selectedComplaint.questions.length}`} • <strong>{(currentDynamicQuestion || selectedComplaint.questions[currentQuestionIndex]).dimension || "Adaptive Check"}</strong>
               </span>
             </div>
 
@@ -1324,21 +1369,47 @@ export default function KioskPage() {
               </div>
             )}
 
-            <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md mb-2 inline-block border border-blue-200">
-                {selectedComplaint.questions[currentQuestionIndex].dimension} Assessment
-              </span>
-              <h2 className="text-xl font-extrabold text-slate-900">
-                {selectedLanguage === 'हिंदी' 
-                  ? selectedComplaint.questions[currentQuestionIndex].questionHi 
-                  : selectedComplaint.questions[currentQuestionIndex].questionEn}
-              </h2>
-            </div>
+            {isThinking ? (
+              <div className="flex flex-col items-center justify-center text-center space-y-4 py-8 animate-pulse">
+                <div className="relative">
+                  <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                    <RefreshCw className="w-8 h-8 text-blue-600 animate-spin-slow" />
+                  </div>
+                  <div className="absolute top-0 left-0 w-16 h-16 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">
+                    {selectedLanguage === 'हिंदी' ? 'डॉक्टर AI सोच रहा है...' : 'Doctor AI is thinking...'}
+                  </h3>
+                  <p className="text-slate-500 mt-1">
+                    {selectedLanguage === 'हिंदी' 
+                      ? 'आपके लक्षणों का विश्लेषण कर अगला प्रासंगिक प्रश्न तैयार किया जा रहा है' 
+                      : 'Analyzing your symptoms to ask the most relevant follow-up question'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md mb-2 inline-block border border-blue-200">
+                    {(currentDynamicQuestion || selectedComplaint.questions[currentQuestionIndex]).dimension || "Adaptive Check"} Assessment
+                  </span>
+                  {currentDynamicQuestion && (
+                    <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-purple-700 bg-purple-50 px-2 py-1 rounded-md mb-2 inline-block border border-purple-200">
+                      AI Generated
+                    </span>
+                  )}
+                  <h2 className="text-xl font-extrabold text-slate-900">
+                    {selectedLanguage === 'हिंदी' 
+                      ? (currentDynamicQuestion || selectedComplaint.questions[currentQuestionIndex]).questionHi 
+                      : (currentDynamicQuestion || selectedComplaint.questions[currentQuestionIndex]).questionEn}
+                  </h2>
+                </div>
 
             <div className="flex flex-col gap-3">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Touch Option:</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {selectedComplaint.questions[currentQuestionIndex].options.map((opt, i) => (
+                {(currentDynamicQuestion || selectedComplaint.questions[currentQuestionIndex]).options.map((opt, i) => (
                   <button
                     key={i}
                     disabled={isSubmitting}
@@ -1389,6 +1460,8 @@ export default function KioskPage() {
                 </div>
               </div>
             </div>
+            </>
+            )}
           </div>
         </main>
       )}
