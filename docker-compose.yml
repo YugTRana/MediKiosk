@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # MEDIKIOSK BACKEND API (Express + Prisma SQLite + Sharp/Tesseract OCR + ABDM)
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: medikiosk-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=file:./dev.db
+      - JWT_SECRET=medikiosk-production-secure-jwt-key-2026-v2
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - medikiosk_data:/app/prisma
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================================
+  # MEDIKIOSK FRONTEND (React 18 + Vite + Tailwind CSS + Nginx)
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: medikiosk-frontend
+    ports:
+      - "5173:80"
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  medikiosk_data:
+    driver: local

@@ -5,7 +5,7 @@ import {
   Sparkles, ShieldAlert, Upload, Camera, FileText, FlaskConical, Check, 
   RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight,
   ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3,
-  Stethoscope, Settings
+  Stethoscope, Settings, WifiOff, Wifi
 } from 'lucide-react';
 import { speakText, cancelSpeech, startListening, isSTTSupported, getSpeechProvider, getRecoveryPrompt } from '../services/speechService.js';
 import AudioWaveformVisualizer from '../components/AudioWaveformVisualizer.jsx';
@@ -41,6 +41,9 @@ export default function KioskPage() {
   const [pendingSubmissionData, setPendingSubmissionData] = useState(null);
   const [patientReadBackText, setPatientReadBackText] = useState('');
   const [isPlayingReadBack, setIsPlayingReadBack] = useState(false);
+
+  // Hospital Hallway Offline & Network Resilience State (Phase 10)
+  const [isOfflineMode, setIsOfflineMode] = useState(typeof navigator !== 'undefined' ? !navigator.onLine : false);
 
   // Granular DPDP Consent Toggles (Module D - Phase 8)
   const [consentToggles, setConsentToggles] = useState({
@@ -129,6 +132,21 @@ export default function KioskPage() {
       .catch((err) => {
         console.warn('[Kiosk] Using fallback local dialogue flows:', err);
       });
+
+    // Offline / Online network listeners
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      }
+    };
   }, []);
 
   // Cleanup TTS and STT on unmount
@@ -843,6 +861,37 @@ export default function KioskPage() {
               <p className="text-xs text-red-100 mt-0.5">Duty nurse notified at Counter 1.</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Hospital Hallway Offline / Graceful Degradation Banner (Phase 10) */}
+      {isOfflineMode && (
+        <div 
+          role="alert" 
+          aria-live="polite"
+          className="max-w-4xl mx-auto w-full mb-5 bg-amber-50 border-2 border-amber-400 p-4 rounded-2xl flex items-center justify-between gap-3 text-amber-950 shadow-sm animate-fadeIn"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-200/60 rounded-xl text-amber-800 flex-shrink-0">
+              <WifiOff className="w-6 h-6 text-amber-800" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300">
+                  Hallway Offline Safe Mode
+                </span>
+                <span className="text-[11px] text-amber-800 font-bold">Kiosk Operational</span>
+              </div>
+              <p className="text-xs font-semibold text-amber-950 mt-1">
+                {selectedLanguage === 'हिंदी'
+                  ? 'अस्पताल सर्वर नेटवर्क अस्थाई रूप से अनुपलब्ध है। आपका चेक-इन बिना रुकावट चालू रहेगा — टोकन स्थानीय रूप से सुरक्षित है और सर्वर उपलब्ध होते ही प्रेषित होगा।'
+                  : 'Hospital server connection unavailable. Kiosk continues operating in local offline mode — your intake is safely saved and will synchronize automatically.'}
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono font-black bg-white text-amber-900 px-2.5 py-1 rounded-xl border border-amber-300 flex-shrink-0">
+            LOCAL ENGINE
+          </span>
         </div>
       )}
 
