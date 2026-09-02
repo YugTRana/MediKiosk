@@ -14,9 +14,24 @@
       "temperature": 98.4,
       "oxygenSat": 97
     },
-    "chiefComplaint": "Routine diabetes checkup and mild joint pain",
+    "chiefComplaint": "Fever / Body Temperature",
     "status": "Checked-in",
-    "tokenNumber": "A-12"
+    "tokenNumber": "A-12",
+    "digitizedDocument": {
+      "documentType": "prescription",
+      "date": "2026-06-15",
+      "facility": "District Hospital OPD",
+      "medications": [
+        { "name": "Metformin", "dose": "500mg", "frequency": "twice daily" },
+        { "name": "Amlodipine", "dose": "5mg", "frequency": "once daily" }
+      ],
+      "labValues": [
+        { "test": "Fasting Blood Sugar", "value": 142, "unit": "mg/dL", "referenceRange": "70-100", "flag": "HIGH" },
+        { "test": "HbA1c", "value": 7.4, "unit": "%", "referenceRange": "4.0-5.6", "flag": "HIGH" },
+        { "test": "Serum Creatinine", "value": 0.9, "unit": "mg/dL", "referenceRange": "0.6-1.2", "flag": "NORMAL" }
+      ],
+      "diagnoses": ["Type 2 Diabetes Mellitus", "Essential Hypertension"]
+    }
   },
   {
     "sessionId": "sess_1002",
@@ -25,7 +40,7 @@
     "patientName": "Sunita Devi",
     "age": 62,
     "gender": "Female",
-    "preferredLanguage": "English",
+    "preferredLanguage": "Hindi",
     "checkInTime": "2026-09-02T10:45:00Z",
     "vitals": {
       "bloodPressure": "124/80",
@@ -33,8 +48,30 @@
       "temperature": 98.6,
       "oxygenSat": 99
     },
-    "chiefComplaint": "Follow-up for hypertension medicine renewal",
+    "chiefComplaint": "Ayurvedic Consultation (आयुर्वेदिक परामर्श)",
     "status": "Waiting",
-    "tokenNumber": "A-13"
+    "tokenNumber": "K-102",
+    "ayushAssessment": {
+      "prakriti": {
+        "dominantDosha": "Vata-Kapha",
+        "labelEn": "Lean build, dry skin tendency, calm disposition",
+        "labelHi": "पतला शरीर, रूखी त्वचा, शांत स्वभाव"
+      },
+      "agni": {
+        "state": "Mandagni (Sluggish Digestion)",
+        "labelEn": "Low appetite, feels heavy after meals, slow digestion",
+        "labelHi": "भूख कम लगना, खाने के बाद भारीपन"
+      },
+      "koshtha": {
+        "pattern": "Krura Koshtha (Hard / Dry)",
+        "labelEn": "Tendency toward constipation, hard stools",
+        "labelHi": "कब्ज की प्रवृत्ति, कठोर मल"
+      },
+      "aharaVihara": {
+        "summary": "Irregular meal times, high intake of cold/dry foods, low hydration",
+        "lifestyle": "Sedentary routine, interrupted night sleep"
+      },
+      "ayurvedicSummary": "Vata-Kapha Prakriti with Mandagni & Krura Koshtha (Deepana-Pachana therapy indicated)"
+    }
   }
 ]
