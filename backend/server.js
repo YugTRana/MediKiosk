@@ -27,11 +27,50 @@ try {
   console.error('[MediKiosk Backend] Error loading dialogueFlows.json:', err.message);
 }
 
-// Simulated In-Memory Storage
-const inMemorySessions = [];
+// Simulated In-Memory Storage & Initial Data Loader
+const sessionsPath = path.join(__dirname, 'mockData', 'patientSessions.json');
+let inMemorySessions = [];
+try {
+  if (fs.existsSync(sessionsPath)) {
+    const rawSessions = fs.readFileSync(sessionsPath, 'utf8');
+    const parsed = JSON.parse(rawSessions);
+    if (Array.isArray(parsed)) {
+      inMemorySessions = parsed.map(s => ({
+        id: s.sessionId || s.id || `sess_${Date.now()}`,
+        tokenNumber: s.tokenNumber || 'K-100',
+        submittedAt: s.checkInTime || new Date().toISOString(),
+        complaintId: s.chiefComplaint ? s.chiefComplaint.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'fever',
+        complaintTitle: s.chiefComplaint || 'General OPD Intake',
+        patientDetails: {
+          name: s.patientName || 'Patient',
+          age: s.age || 45,
+          gender: s.gender || 'Male',
+          abhaNumber: s.abhaId || '91-8472-1029-4821'
+        },
+        abhaDetails: {
+          name: s.patientName || 'Patient',
+          age: s.age || 45,
+          gender: s.gender || 'Male',
+          abhaNumber: s.abhaId || '91-8472-1029-4821',
+          verified: true
+        },
+        consentStatus: 'GRANTED',
+        digitizedDocument: s.digitizedDocument || null,
+        ayushAssessment: s.ayushAssessment || null,
+        answers: s.answers || [],
+        redFlagsTriggered: s.redFlagsTriggered || [],
+        status: s.status === 'Checked-in' ? 'WAITING_OPD' : (s.status || 'WAITING_OPD')
+      }));
+      console.log(`[MediKiosk Backend] Loaded ${inMemorySessions.length} initial patient records from database.`);
+    }
+  }
+} catch (err) {
+  console.error('[MediKiosk Backend] Error loading patientSessions.json:', err.message);
+}
+
 const redFlagAlerts = [];
 const hisPushedRecords = [];
-let tokenCounter = 100;
+let tokenCounter = 100 + inMemorySessions.length;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -64,13 +103,23 @@ app.get('/api/dialogue-flows', (req, res) => {
 // ==============================================================================
 app.post('/api/abdm/verify', (req, res) => {
   const { abhaId, mobile } = req.body || {};
-  console.log(`\n🇮🇳 [ABDM GATEWAY (SANDBOX)] Verifying ABHA / Mobile: ${abhaId || mobile}...`);
+  const inputStr = String(abhaId || mobile || '').trim();
+  console.log(`\n🇮🇳 [ABDM GATEWAY (SANDBOX)] Verifying ABHA / Mobile: "${inputStr}"...`);
 
   setTimeout(() => {
-    const rawNumber = String(abhaId || mobile || '91847210294821').replace(/[^0-9]/g, '');
+    if (!inputStr) {
+      console.log(`❌ [ABDM GATEWAY (SANDBOX)] Verification FAILED: Empty input provided.`);
+      return res.status(400).json({
+        success: false,
+        error: 'EMPTY_INPUT',
+        message: 'Please enter a valid 14-digit ABHA ID or 10-digit mobile number.'
+      });
+    }
 
-    const isSunita = rawNumber.includes('3829') || rawNumber.includes('1928');
-    const isAmit = rawNumber.includes('5555') || rawNumber.includes('1234');
+    const rawNumber = inputStr.replace(/[^0-9]/g, '');
+    const isSunita = rawNumber.includes('3829') || rawNumber.includes('1928') || rawNumber === '9845211928' || inputStr.toLowerCase().includes('sunita');
+    const isAmit = rawNumber.includes('5555') || rawNumber.includes('1234') || rawNumber === '9711233455' || inputStr.toLowerCase().includes('amit');
+    const isRamesh = rawNumber.includes('8472') || rawNumber.includes('4821') || rawNumber === '9876543210' || inputStr.toLowerCase().includes('ramesh') || rawNumber === '91847210294821';
 
     let patientProfile;
     if (isSunita) {
@@ -103,14 +152,10 @@ app.post('/api/abdm/verify', (req, res) => {
         healthLockerLinked: true,
         verificationTimestamp: new Date().toISOString()
       };
-    } else {
-      const formattedAbha = rawNumber.length === 14 
-        ? `${rawNumber.slice(0,2)}-${rawNumber.slice(2,6)}-${rawNumber.slice(6,10)}-${rawNumber.slice(10,14)}`
-        : '91-8472-1029-4821';
-
+    } else if (isRamesh) {
       patientProfile = {
         verified: true,
-        abhaNumber: formattedAbha,
+        abhaNumber: '91-8472-1029-4821',
         abhaAddress: 'ramesh.sharma@abdm',
         name: 'Ramesh Chandra Sharma',
         gender: 'Male',
@@ -122,6 +167,14 @@ app.post('/api/abdm/verify', (req, res) => {
         healthLockerLinked: true,
         verificationTimestamp: new Date().toISOString()
       };
+    } else {
+      // Reject any random unregistered number / invalid ID
+      console.log(`❌ [ABDM GATEWAY (SANDBOX)] Verification REJECTED: No ABHA record found for "${inputStr}".`);
+      return res.status(404).json({
+        success: false,
+        error: 'ABHA_NOT_FOUND',
+        message: 'No registered ABHA record found with this ID or Mobile Number. Please check your credentials or choose one of the demo profiles.'
+      });
     }
 
     console.log(`✅ [ABDM GATEWAY (SANDBOX)] Verified Profile for ${patientProfile.name} (${patientProfile.abhaNumber})`);
@@ -132,7 +185,7 @@ app.post('/api/abdm/verify', (req, res) => {
       message: 'ABHA demographic records verified via ABDM sandbox gateway',
       patientProfile
     });
-  }, 1500);
+  }, 1200);
 });
 
 // ==============================================================================
@@ -181,15 +234,68 @@ app.post('/api/docai/extract', async (req, res) => {
 
   setTimeout(() => {
     const fnLower = (fileName || '').toLowerCase();
-    const isJointPain = complaintId === 'joint_pain' || /joint|knee|ortho|rheumat|uric|xray|arthritis|swelling|esr|crp/i.test(fnLower);
-    const isFever = complaintId === 'fever' || /fever|dengue|malaria|cbc|platelet|widal/i.test(fnLower);
-    const isCough = complaintId === 'cough_breathlessness' || /cough|breath|chest|pulmo|asthma|eosinophil/i.test(fnLower);
-    const isAbdominal = complaintId === 'abdominal_pain' || /abdo|stomach|ultrasound|usg|liver|lft|gastric/i.test(fnLower);
+    const docTypeLower = (documentType || '').toLowerCase();
+
+    // 1. Direct match by documentType or fileName keywords FIRST
+    const isExplicitDiabetesBP = 
+      docTypeLower === 'prescription' || 
+      docTypeLower === 'diabetes_metabolic_rx' || 
+      docTypeLower === 'hypertension_prescription' ||
+      /diabetes|hypertension|sugar|glucose|hba1c|blood_pressure|bp|pressure|metformin|amlodipine|telmisartan|metabolic|endocrine|prescription|rx/i.test(fnLower);
+
+    const isExplicitJoint = 
+      docTypeLower === 'orthopedic_rheumatology_report' || 
+      /joint|knee|ortho|rheumat|uric|xray|arthritis|swelling|esr|crp|gout/i.test(fnLower);
+
+    const isExplicitCough = 
+      docTypeLower === 'pulmonology_report' || 
+      /cough|breath|chest|pulmo|asthma|eosinophil|spo2|inhaler/i.test(fnLower);
+
+    const isExplicitAbdo = 
+      docTypeLower === 'gastroenterology_report' || 
+      /abdo|stomach|ultrasound|usg|liver|lft|gastric|gallbladder|bilirubin/i.test(fnLower);
+
+    const isExplicitFever = 
+      docTypeLower === 'lab_report' || 
+      docTypeLower === 'cbc_infection_panel' || 
+      /dengue|malaria|cbc|platelet|widal|infection|typhoid|hematology/i.test(fnLower);
+
+    // If explicit type/name matches, prioritize it. Otherwise fallback to complaintId.
+    const isDiabetesBP = isExplicitDiabetesBP;
+    const isJointPain = !isDiabetesBP && (isExplicitJoint || (!isExplicitFever && !isExplicitCough && !isExplicitAbdo && (complaintId === 'joint_pain' || complaintId === 'ayush_consultation')));
+    const isFever = !isDiabetesBP && !isJointPain && (isExplicitFever || (!isExplicitCough && !isExplicitAbdo && complaintId === 'fever'));
+    const isCough = !isDiabetesBP && !isJointPain && !isFever && (isExplicitCough || (!isExplicitAbdo && complaintId === 'cough_breathlessness'));
+    const isAbdominal = !isDiabetesBP && !isJointPain && !isFever && !isCough && (isExplicitAbdo || complaintId === 'abdominal_pain');
 
     let extractedData;
 
-    // A. JOINT PAIN & SWELLING: Orthopedic & Rheumatology Panel (Uric acid, CRP, ESR, RA Factor, Knee X-Ray)
-    if (isJointPain) {
+    // A. DIABETES & BLOOD PRESSURE / HYPERTENSION (METABOLIC)
+    if (isDiabetesBP) {
+      extractedData = {
+        documentType: 'prescription',
+        documentTitle: 'Endocrine & Metabolic Outpatient Record (Diabetes & BP)',
+        facility: 'District Government Hospital OPD',
+        date: '2026-06-15',
+        prescriber: 'Dr. S. K. Mehta (MD, Gen Med)',
+        medications: [
+          { name: 'Metformin', dose: '500mg', frequency: 'twice daily (after meals)', duration: '30 days', instructions: 'Oral anti-diabetic' },
+          { name: 'Amlodipine', dose: '5mg', frequency: 'once daily (morning)', duration: '30 days', instructions: 'Oral anti-hypertensive' },
+          { name: 'Telmisartan', dose: '40mg', frequency: 'once daily (morning)', duration: '30 days', instructions: 'Blood pressure control' }
+        ],
+        labValues: [
+          { test: 'Fasting Blood Sugar (FBS)', value: 142, unit: 'mg/dL', referenceRange: '70 - 100', flag: 'HIGH' },
+          { test: 'Post-Prandial Blood Sugar (PPBS)', value: 198, unit: 'mg/dL', referenceRange: '< 140', flag: 'HIGH' },
+          { test: 'HbA1c (Glycated Hemoglobin)', value: 7.4, unit: '%', referenceRange: '4.0 - 5.6', flag: 'HIGH' },
+          { test: 'Blood Pressure (Systolic/Diastolic)', value: '140/90', unit: 'mmHg', referenceRange: '120/80', flag: 'HIGH' },
+          { test: 'Serum Creatinine', value: 0.9, unit: 'mg/dL', referenceRange: '0.6 - 1.2', flag: 'NORMAL' }
+        ],
+        diagnoses: ['Type 2 Diabetes Mellitus (Uncontrolled)', 'Stage 1 Essential Hypertension'],
+        confidenceScore: 0.98,
+        rawNotes: 'Routine metabolic follow-up. Elevated FBS (142) and HbA1c (7.4%) with stage-1 hypertension (140/90 mmHg).'
+      };
+    }
+    // B. JOINT PAIN & SWELLING: Orthopedic & Rheumatology Panel (Uric acid, CRP, ESR, RA Factor, Knee X-Ray)
+    else if (isJointPain) {
       extractedData = {
         documentType: 'orthopedic_rheumatology_report',
         documentTitle: 'Orthopedic Joint Radiology & Rheumatology Panel',
@@ -220,7 +326,7 @@ app.post('/api/docai/extract', async (req, res) => {
         rawNotes: 'High Serum Uric Acid (8.6) and elevated inflammatory markers (CRP 24.5, ESR 48) confirming active joint inflammation with bilateral knee effusion.'
       };
     } 
-    // B. FEVER / INFECTION: Complete Blood Count & Serology
+    // C. FEVER / INFECTION: Complete Blood Count & Serology
     else if (isFever) {
       extractedData = {
         documentType: 'lab_report',
@@ -243,7 +349,7 @@ app.post('/api/docai/extract', async (req, res) => {
         confidenceScore: 0.95
       };
     }
-    // C. COUGH & BREATHLESSNESS: Pulmonology & Allergy Panel
+    // D. COUGH & BREATHLESSNESS: Pulmonology & Allergy Panel
     else if (isCough) {
       extractedData = {
         documentType: 'pulmonology_report',
@@ -266,7 +372,7 @@ app.post('/api/docai/extract', async (req, res) => {
         confidenceScore: 0.94
       };
     }
-    // D. ABDOMINAL PAIN: Gastroenterology & Ultrasound
+    // E. ABDOMINAL PAIN: Gastroenterology & Ultrasound
     else if (isAbdominal) {
       extractedData = {
         documentType: 'gastroenterology_report',
@@ -289,18 +395,17 @@ app.post('/api/docai/extract', async (req, res) => {
         confidenceScore: 0.96
       };
     }
-    // E. GENERAL / DIABETES / METABOLIC (DEFAULT)
+    // F. DEFAULT GENERAL / METABOLIC
     else {
       extractedData = {
         documentType: 'prescription',
-        documentTitle: 'Endocrine & Metabolic Outpatient Record',
+        documentTitle: 'General Outpatient Prescription Record',
         facility: 'District Government Hospital OPD',
         date: '2026-06-15',
         prescriber: 'Dr. S. K. Mehta (MD, Gen Med)',
         medications: [
           { name: 'Metformin', dose: '500mg', frequency: 'twice daily (after meals)', duration: '30 days' },
-          { name: 'Amlodipine', dose: '5mg', frequency: 'once daily (morning)', duration: '30 days' },
-          { name: 'Paracetamol', dose: '650mg', frequency: 'as needed for fever/pain', duration: '5 days' }
+          { name: 'Amlodipine', dose: '5mg', frequency: 'once daily (morning)', duration: '30 days' }
         ],
         labValues: [
           { test: 'Fasting Blood Sugar', value: 142, unit: 'mg/dL', referenceRange: '70 - 100', flag: 'HIGH' },

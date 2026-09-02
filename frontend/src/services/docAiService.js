@@ -57,11 +57,56 @@ export async function extractDocumentWithDocAI({ fileName, documentType = 'auto'
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const fnLower = (fileName || '').toLowerCase();
-    const isJointPain = complaintId === 'joint_pain' || /joint|knee|ortho|rheumat|uric|xray|arthritis|swelling|esr|crp/i.test(fnLower);
-    const isFever = complaintId === 'fever' || /fever|dengue|malaria|cbc|platelet|widal/i.test(fnLower);
-    const isCough = complaintId === 'cough_breathlessness' || /cough|breath|chest|pulmo|asthma|eosinophil/i.test(fnLower);
+    const docTypeLower = (documentType || '').toLowerCase();
 
-    if (isJointPain) {
+    // 1. Direct match by documentType or fileName keywords FIRST
+    const isExplicitDiabetesBP = 
+      docTypeLower === 'prescription' || 
+      docTypeLower === 'diabetes_metabolic_rx' || 
+      docTypeLower === 'hypertension_prescription' ||
+      /diabetes|hypertension|sugar|glucose|hba1c|blood_pressure|bp|pressure|metformin|amlodipine|telmisartan|metabolic|endocrine|prescription|rx/i.test(fnLower);
+
+    const isExplicitJoint = 
+      docTypeLower === 'orthopedic_rheumatology_report' || 
+      /joint|knee|ortho|rheumat|uric|xray|arthritis|swelling|esr|crp|gout/i.test(fnLower);
+
+    const isExplicitCough = 
+      docTypeLower === 'pulmonology_report' || 
+      /cough|breath|chest|pulmo|asthma|eosinophil|spo2|inhaler/i.test(fnLower);
+
+    const isExplicitFever = 
+      docTypeLower === 'lab_report' || 
+      docTypeLower === 'cbc_infection_panel' || 
+      /dengue|malaria|cbc|platelet|widal|infection|typhoid|hematology/i.test(fnLower);
+
+    const isDiabetesBP = isExplicitDiabetesBP;
+    const isJointPain = !isDiabetesBP && (isExplicitJoint || (!isExplicitFever && !isExplicitCough && (complaintId === 'joint_pain' || complaintId === 'ayush_consultation')));
+    const isFever = !isDiabetesBP && !isJointPain && (isExplicitFever || (!isExplicitCough && complaintId === 'fever'));
+    const isCough = !isDiabetesBP && !isJointPain && !isFever && (isExplicitCough || complaintId === 'cough_breathlessness');
+
+    if (isDiabetesBP) {
+      return {
+        documentType: 'prescription',
+        documentTitle: 'Endocrine & Metabolic Outpatient Record (Diabetes & BP)',
+        facility: 'District Government Hospital OPD',
+        date: '2026-06-15',
+        prescriber: 'Dr. S. K. Mehta (MD, Gen Med)',
+        medications: [
+          { name: 'Metformin', dose: '500mg', frequency: 'twice daily (after meals)', duration: '30 days', instructions: 'Oral anti-diabetic' },
+          { name: 'Amlodipine', dose: '5mg', frequency: 'once daily (morning)', duration: '30 days', instructions: 'Oral anti-hypertensive' },
+          { name: 'Telmisartan', dose: '40mg', frequency: 'once daily (morning)', duration: '30 days', instructions: 'Blood pressure control' }
+        ],
+        labValues: [
+          { test: 'Fasting Blood Sugar (FBS)', value: 142, unit: 'mg/dL', referenceRange: '70 - 100', flag: 'HIGH' },
+          { test: 'Post-Prandial Blood Sugar (PPBS)', value: 198, unit: 'mg/dL', referenceRange: '< 140', flag: 'HIGH' },
+          { test: 'HbA1c (Glycated Hemoglobin)', value: 7.4, unit: '%', referenceRange: '4.0 - 5.6', flag: 'HIGH' },
+          { test: 'Blood Pressure (Systolic/Diastolic)', value: '140/90', unit: 'mmHg', referenceRange: '120/80', flag: 'HIGH' },
+          { test: 'Serum Creatinine', value: 0.9, unit: 'mg/dL', referenceRange: '0.6 - 1.2', flag: 'NORMAL' }
+        ],
+        diagnoses: ['Type 2 Diabetes Mellitus (Uncontrolled)', 'Stage 1 Essential Hypertension'],
+        confidenceScore: 0.98
+      };
+    } else if (isJointPain) {
       return {
         documentType: 'orthopedic_rheumatology_report',
         documentTitle: 'Orthopedic Joint Radiology & Rheumatology Panel',
@@ -129,7 +174,7 @@ export async function extractDocumentWithDocAI({ fileName, documentType = 'auto'
     } else {
       return {
         documentType: 'prescription',
-        documentTitle: 'Endocrine & Metabolic Outpatient Record',
+        documentTitle: 'General Outpatient Prescription Record',
         facility: 'District Government Hospital OPD',
         date: '2026-06-15',
         medications: [
@@ -138,7 +183,8 @@ export async function extractDocumentWithDocAI({ fileName, documentType = 'auto'
         ],
         labValues: [
           { test: 'Fasting Blood Sugar', value: 142, unit: 'mg/dL', referenceRange: '70 - 100', flag: 'HIGH' },
-          { test: 'HbA1c (Glycated Hemoglobin)', value: 7.4, unit: '%', referenceRange: '4.0 - 5.6', flag: 'HIGH' }
+          { test: 'HbA1c (Glycated Hemoglobin)', value: 7.4, unit: '%', referenceRange: '4.0 - 5.6', flag: 'HIGH' },
+          { test: 'Blood Pressure (Systolic/Diastolic)', value: '140/90', unit: 'mmHg', referenceRange: '120/80', flag: 'HIGH' }
         ],
         diagnoses: ['Type 2 Diabetes Mellitus', 'Stage 1 Essential Hypertension'],
         confidenceScore: 0.96

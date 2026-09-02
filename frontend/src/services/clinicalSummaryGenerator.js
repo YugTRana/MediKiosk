@@ -73,11 +73,22 @@ export function generateHpiProse(session) {
     }
     hpi += `Current discomfort level is characterized as ${severity.toLowerCase()}. `;
 
-    if (digitizedDocument?.labValues) {
+    if (digitizedDocument?.labValues && digitizedDocument.labValues.length > 0) {
       const plt = digitizedDocument.labValues.find(l => /platelet/i.test(l.test));
       const tlc = digitizedDocument.labValues.find(l => /leukocyte|tlc/i.test(l.test));
-      if (plt || tlc) {
-        hpi += `Concurrent hematology workup reveals ${plt ? `Platelets ${plt.value} ${plt.unit} (${plt.flag})` : ''}${plt && tlc ? ' and ' : ''}${tlc ? `TLC ${tlc.value} ${tlc.unit} (${tlc.flag})` : ''}. `;
+      const fbs = digitizedDocument.labValues.find(l => /sugar|fbs|glucose/i.test(l.test));
+      const hba1c = digitizedDocument.labValues.find(l => /hba1c/i.test(l.test));
+      const bp = digitizedDocument.labValues.find(l => /blood pressure|bp/i.test(l.test));
+
+      const labNotes = [];
+      if (plt) labNotes.push(`Platelets ${plt.value} ${plt.unit} (${plt.flag})`);
+      if (tlc) labNotes.push(`TLC ${tlc.value} ${tlc.unit} (${tlc.flag})`);
+      if (fbs) labNotes.push(`FBS ${fbs.value} ${fbs.unit} (${fbs.flag})`);
+      if (hba1c) labNotes.push(`HbA1c ${hba1c.value} ${hba1c.unit} (${hba1c.flag})`);
+      if (bp) labNotes.push(`Blood Pressure ${bp.value} ${bp.unit} (${bp.flag})`);
+
+      if (labNotes.length > 0) {
+        hpi += `Uploaded clinical records note: ${labNotes.join(', ')}. `;
       }
     }
     return hpi;

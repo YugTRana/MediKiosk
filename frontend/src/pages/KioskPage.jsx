@@ -35,6 +35,7 @@ export default function KioskPage() {
   const [inputAbhaOrMobile, setInputAbhaOrMobile] = useState('');
   const [isVerifyingAbdm, setIsVerifyingAbdm] = useState(false);
   const [verifiedPatient, setVerifiedPatient] = useState(null);
+  const [abhaError, setAbhaError] = useState(null);
 
   // Loaded Dialogue Data
   const [dialogueData, setDialogueData] = useState(fallbackFlows);
@@ -160,8 +161,18 @@ export default function KioskPage() {
   // ============================================================================
   const handleVerifyAbha = async (customId = null) => {
     cancelSpeech();
-    const idToVerify = customId || inputAbhaOrMobile || '91-8472-1029-4821';
+    const idToVerify = (customId !== null ? customId : inputAbhaOrMobile).trim();
+    if (!idToVerify) {
+      const msg = selectedLanguage === 'हिंदी'
+        ? 'कृपया अपना 14-अंकों का आभा नंबर या 10-अंकों का मोबाइल नंबर दर्ज करें।'
+        : 'Please enter your 14-digit ABHA ID or 10-digit registered mobile number.';
+      setAbhaError(msg);
+      narrate(msg);
+      return;
+    }
+
     setIsVerifyingAbdm(true);
+    setAbhaError(null);
     setVerifiedPatient(null);
 
     narrate(
@@ -173,6 +184,7 @@ export default function KioskPage() {
     try {
       const profile = await verifyAbhaWithAbdm({ abhaId: idToVerify, mobile: idToVerify });
       setVerifiedPatient(profile);
+      setAbhaError(null);
       narrate(
         selectedLanguage === 'हिंदी'
           ? `नमस्ते ${profile.name} जी! आपकी आभा आईडी सत्यापित हो गई है।`
@@ -180,6 +192,15 @@ export default function KioskPage() {
       );
     } catch (err) {
       console.error('[ABDM] Verification error:', err);
+      const errMsg = selectedLanguage === 'हिंदी'
+        ? (err.message || 'अमान्य आभा नंबर या मोबाइल। कोई रिकॉर्ड नहीं मिला। कृपया सही नंबर दर्ज करें या डेमो खाता चुनें।')
+        : (err.message || 'No registered ABHA record found with this ID or Mobile Number. Please check your credentials or select a demo account.');
+      setAbhaError(errMsg);
+      narrate(
+        selectedLanguage === 'हिंदी'
+          ? 'यह आभा नंबर या मोबाइल रिकॉर्ड में नहीं मिला। कृपया सही नंबर दर्ज करें या डेमो प्रोफाइल चुनें।'
+          : 'No registered ABHA record found for this number. Please check and try again.'
+      );
     } finally {
       setIsVerifyingAbdm(false);
     }
@@ -510,6 +531,7 @@ export default function KioskPage() {
     setSubmittedSession(null);
     setVerifiedPatient(null);
     setInputAbhaOrMobile('');
+    setAbhaError(null);
   };
 
   return (
@@ -721,17 +743,40 @@ export default function KioskPage() {
             {/* Input & Demo Accounts (When not verifying and not verified) */}
             {!isVerifyingAbdm && !verifiedPatient && (
               <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full">
+                {/* Error Banner if ABHA not found */}
+                {abhaError && (
+                  <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex items-start gap-3 text-red-900 animate-fadeIn shadow-sm">
+                    <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="text-sm font-extrabold text-red-950">
+                        {selectedLanguage === 'हिंदी' ? 'सत्यापन विफल (ABHA Record Not Found)' : 'ABDM Health Record Not Found'}
+                      </h4>
+                      <p className="text-xs text-red-800 mt-1 font-medium leading-relaxed">
+                        {abhaError}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Manual Input Box */}
                 <div className="flex flex-col gap-3">
                   <div className="relative">
                     <input
                       type="text"
                       value={inputAbhaOrMobile}
-                      onChange={(e) => setInputAbhaOrMobile(e.target.value)}
+                      onChange={(e) => {
+                        setInputAbhaOrMobile(e.target.value);
+                        setAbhaError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleVerifyAbha();
+                      }}
                       placeholder="e.g. 91-8472-1029-4821 or 9876543210"
-                      className="w-full p-4 pl-12 text-lg font-mono font-bold text-slate-900 bg-slate-50 border-2 border-slate-300 rounded-2xl focus:outline-none focus:border-blue-600 focus:bg-white"
+                      className={`w-full p-4 pl-12 text-lg font-mono font-bold text-slate-900 bg-slate-50 border-2 ${
+                        abhaError ? 'border-red-500 bg-red-50/20' : 'border-slate-300'
+                      } rounded-2xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors`}
                     />
-                    <Smartphone className="w-6 h-6 text-slate-400 absolute left-4 top-4.5" />
+                    <Smartphone className={`w-6 h-6 absolute left-4 top-4.5 ${abhaError ? 'text-red-500' : 'text-slate-400'}`} />
                   </div>
 
                   <button
@@ -825,7 +870,7 @@ export default function KioskPage() {
                   </button>
 
                   <button
-                    onClick={() => { setVerifiedPatient(null); setInputAbhaOrMobile(''); }}
+                    onClick={() => { setVerifiedPatient(null); setInputAbhaOrMobile(''); setAbhaError(null); }}
                     className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-2xl border border-slate-300 cursor-pointer"
                   >
                     Different Patient

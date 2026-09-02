@@ -37,30 +37,45 @@ export const SAMPLE_ABHA_ACCOUNTS = [
 ];
 
 export async function verifyAbhaWithAbdm({ abhaId = '', mobile = '' }) {
+  const inputStr = String(abhaId || mobile || '').trim();
+  if (!inputStr) {
+    throw new Error('Please enter a valid 14-digit ABHA ID or 10-digit mobile number.');
+  }
+
   try {
     const res = await fetch('http://localhost:3000/api/abdm/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ abhaId, mobile })
+      body: JSON.stringify({ abhaId: inputStr, mobile: inputStr })
     });
 
-    if (res.ok) {
-      const data = await res.json();
+    const data = await res.json();
+    if (res.ok && data.patientProfile) {
       return data.patientProfile;
     }
-    throw new Error(`ABDM server returned ${res.status}`);
+    throw new Error(data.message || 'No registered ABHA record found for the entered credentials.');
   } catch (err) {
-    console.warn('[ABDM Service] Backend unreachable, using fallback sandbox simulation:', err);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // If backend provided a business error (like 404 ABHA_NOT_FOUND), rethrow it immediately!
+    if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
+      throw err;
+    }
 
-    const cleanInput = (abhaId || mobile || '').replace(/[^0-9]/g, '');
-    if (cleanInput.includes('3829') || cleanInput.includes('1928')) {
-      return SAMPLE_ABHA_ACCOUNTS[1];
+    console.warn('[ABDM Service] Backend unreachable, using fallback sandbox simulation:', err);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const cleanInput = inputStr.replace(/[^0-9]/g, '');
+    if (cleanInput.includes('3829') || cleanInput.includes('1928') || cleanInput === '9845211928' || inputStr.toLowerCase().includes('sunita')) {
+      return { ...SAMPLE_ABHA_ACCOUNTS[1], verified: true };
     }
-    if (cleanInput.includes('5555') || cleanInput.includes('1234')) {
-      return SAMPLE_ABHA_ACCOUNTS[2];
+    if (cleanInput.includes('5555') || cleanInput.includes('1234') || cleanInput === '9711233455' || inputStr.toLowerCase().includes('amit')) {
+      return { ...SAMPLE_ABHA_ACCOUNTS[2], verified: true };
     }
-    return SAMPLE_ABHA_ACCOUNTS[0];
+    if (cleanInput.includes('8472') || cleanInput.includes('4821') || cleanInput === '9876543210' || inputStr.toLowerCase().includes('ramesh') || cleanInput === '91847210294821') {
+      return { ...SAMPLE_ABHA_ACCOUNTS[0], verified: true };
+    }
+
+    // Invalid / Unregistered Number entered
+    throw new Error('No registered ABHA record found with this ID or Mobile Number. Please check your credentials or select a demo account.');
   }
 }
 
