@@ -5,7 +5,7 @@ import {
   Activity, HeartPulse, Edit3, Check, ThumbsUp, ThumbsDown, Copy, 
   Sparkles, ShieldAlert, Award, FileCheck, CheckCheck, Code2, Send,
   Layers, Database, ArrowRight, ShieldCheck, UserCheck, Volume2, VolumeX,
-  BellRing, Radio
+  BellRing, Radio, Settings, User
 } from 'lucide-react';
 import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js';
 import { convertSessionToFhirR4Bundle } from '../services/fhirGenerator.js';
@@ -342,18 +342,21 @@ export default function DoctorDashboard() {
             <Stethoscope className="w-7 h-7" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight">Physician Review Dashboard</h1>
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2.5 py-0.5 rounded text-xs font-bold flex items-center gap-1">
-                <Code2 className="w-3.5 h-3.5" /> FHIR R4 & ABDM Ready
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold tracking-tight">MediKiosk Physician Review Workspace</h1>
+              <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                Sandbox Mode
+              </span>
+              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                <Code2 className="w-3.5 h-3.5" /> FHIR R4 Connected
               </span>
             </div>
-            <p className="text-slate-400 text-xs font-medium">Dr. Sunita Rao (MD, General & Integrated Medicine) • Room 104</p>
+            <p className="text-slate-400 text-xs font-medium">Dr. Sunita Rao (MD, General & Integrated Medicine) • Consultation Room 104</p>
           </div>
         </div>
 
-        {/* Global Acceptance Rate & Actions */}
-        <div className="flex items-center gap-3">
+        {/* Global Acceptance Rate & Navigation */}
+        <div className="flex items-center gap-2.5 flex-wrap">
           <div className="bg-slate-800/90 border border-slate-700/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2">
             <Award className="w-4 h-4 text-amber-400" />
             <div className="text-right">
@@ -362,12 +365,28 @@ export default function DoctorDashboard() {
             </div>
           </div>
 
+          <a
+            href="/admin"
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Open Demo Admin & Reset Panel"
+          >
+            <Settings className="w-3.5 h-3.5 text-blue-400" /> Admin & Reset
+          </a>
+
+          <a
+            href="/kiosk"
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Open Patient Kiosk Touchscreen"
+          >
+            <User className="w-3.5 h-3.5 text-emerald-400" /> Kiosk
+          </a>
+
           <button
             onClick={fetchSessions}
             className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
             title="Refresh patient queue"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>

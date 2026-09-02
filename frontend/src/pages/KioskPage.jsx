@@ -4,7 +4,8 @@ import {
   Mic, MicOff, AlertTriangle, CheckCircle2, ArrowRight, ArrowLeft, RefreshCw, 
   Sparkles, ShieldAlert, Upload, Camera, FileText, FlaskConical, Check, 
   RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight,
-  ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3
+  ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3,
+  Stethoscope, Settings
 } from 'lucide-react';
 import { speakText, cancelSpeech, startListening, isSTTSupported } from '../services/speechService.js';
 import { checkRedFlagCondition } from '../services/redFlagDetector.js';
@@ -562,24 +563,43 @@ export default function KioskPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col p-4 md:p-8 select-none font-sans">
       {/* Kiosk Header */}
-      <header className="bg-slate-900 text-white p-4 md:p-5 rounded-2xl shadow-md flex flex-col sm:flex-row justify-between items-center gap-3 border-b-2 border-slate-800 mb-6">
+      <header className="bg-slate-900 text-white p-4 md:p-5 rounded-3xl shadow-md flex flex-col sm:flex-row justify-between items-center gap-3 border-b-2 border-slate-800 mb-6">
         <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-sm">
+          <div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-sm flex items-center justify-center">
             <HeartPulse className="w-7 h-7" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight">MediKiosk Smart Assistance</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold tracking-tight">MediKiosk Touch Portal</h1>
+              <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[11px] font-bold px-2 py-0.5 rounded">
+                Sandbox Mode
+              </span>
               <span className="bg-emerald-500/20 text-emerald-300 text-[11px] font-bold px-2 py-0.5 rounded border border-emerald-400/30">
-                ABDM Enabled
+                Self-Service OPD
               </span>
             </div>
-            <p className="text-slate-400 text-xs font-medium">Smart OPD triage, ABHA KYC & Integrated AYUSH</p>
+            <p className="text-slate-400 text-xs font-medium">Multi-lingual triage intake & AYUSH assessment</p>
           </div>
         </div>
 
-        {/* Global Controls: Language & Audio Narration */}
-        <div className="flex items-center gap-2">
+        {/* Global Controls: Language, Audio Narration & Demo Navigation */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <a
+            href="/doctor"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1 cursor-pointer"
+            title="Switch to Doctor Review Dashboard"
+          >
+            <Stethoscope className="w-3.5 h-3.5 text-blue-400" /> Doctor
+          </a>
+
+          <a
+            href="/admin"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1 cursor-pointer"
+            title="Open Demo Admin & Reset Panel"
+          >
+            <Settings className="w-3.5 h-3.5 text-purple-400" /> Admin
+          </a>
+
           <button
             onClick={() => setTtsEnabled(!ttsEnabled)}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border cursor-pointer ${
