@@ -17,6 +17,7 @@ const {
   deletePatientProfile 
 } = require('./services/authService');
 const { getNextQuestion } = require('./services/dialogueEngine');
+const { getSpeechServiceConfig, bhashiniTranscribeAudio, bhashiniSynthesizeSpeech } = require('./services/bhashiniService');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -503,6 +504,40 @@ app.post('/api/dialogue/next-question', async (req, res) => {
   } catch (error) {
     console.error('Error getting next question:', error);
     res.status(500).json({ success: false, message: 'Failed to get next question' });
+  }
+});
+
+// ==============================================================================
+// 4b. SPEECH & VOICE AI (BHASHINI ASR & TTS GATEWAY)
+// ==============================================================================
+app.get('/api/speech/config', (req, res) => {
+  try {
+    const config = getSpeechServiceConfig();
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/speech/tts', async (req, res) => {
+  const { text, language, gender } = req.body;
+  try {
+    const result = await bhashiniSynthesizeSpeech({ text, language, gender });
+    res.json(result);
+  } catch (err) {
+    console.error('Error in /api/speech/tts:', err);
+    res.status(500).json({ success: false, fallback: 'browser', message: err.message });
+  }
+});
+
+app.post('/api/speech/transcribe', async (req, res) => {
+  const { base64Audio, language, audioFormat } = req.body;
+  try {
+    const result = await bhashiniTranscribeAudio({ base64Audio, language, audioFormat });
+    res.json(result);
+  } catch (err) {
+    console.error('Error in /api/speech/transcribe:', err);
+    res.status(500).json({ success: false, fallback: 'browser', message: err.message });
   }
 });
 

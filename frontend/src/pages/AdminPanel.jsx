@@ -1,13 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Settings, Server, RefreshCw, Database, Activity, CheckCircle2, XCircle, 
   FileText, Leaf, FlaskConical, Play, Check, Clock, Users, Send, Code2, 
   ShieldCheck, AlertTriangle, Layers, Trash2, Search, Smartphone, User, MapPin,
-  RotateCcw, Sparkles, HeartPulse, Stethoscope, ArrowRight, Radio, Award
+  RotateCcw, Sparkles, HeartPulse, Stethoscope, ArrowRight, Radio, Award,
+  Volume2, VolumeX, Mic, MicOff
 } from 'lucide-react';
 import { extractDocumentWithDocAI } from '../services/docAiService.js';
 import { fetchAdminPatients, deleteAdminPatient, pushFhirToHospitalEmr, getAuthHeaders } from '../services/authService.js';
 import { convertSessionToFhirR4Bundle } from '../services/fhirGenerator.js';
+import { 
+  getSpeechProvider, 
+  setSpeechProvider, 
+  fetchSpeechConfig, 
+  speakText, 
+  cancelSpeech, 
+  startListening, 
+  isSTTSupported, 
+  REGIONAL_LANGUAGES 
+} from '../services/speechService.js';
 
 export default function AdminPanel() {
   const [healthStatus, setHealthStatus] = useState(null);
@@ -43,6 +54,16 @@ export default function AdminPanel() {
   const [selectedDocType, setSelectedDocType] = useState('prescription');
   const [testingHis, setTestingHis] = useState(false);
   const [hisResult, setHisResult] = useState(null);
+
+  // Speech & Bhashini Diagnostics State
+  const [speechProvider, setSpeechProviderState] = useState(getSpeechProvider());
+  const [speechConfig, setSpeechConfig] = useState(null);
+  const [testSpeechLang, setTestSpeechLang] = useState('hi');
+  const [testTtsPlaying, setTestTtsPlaying] = useState(false);
+  const [testAsrListening, setTestAsrListening] = useState(false);
+  const [testAsrLevel, setTestAsrLevel] = useState(0);
+  const [testAsrTranscript, setTestAsrTranscript] = useState('');
+  const testAsrRecRef = useRef(null);
 
   // Check Backend Health & Live Metrics
   const fetchMetricsAndHealth = async () => {
@@ -203,9 +224,74 @@ export default function AdminPanel() {
   useEffect(() => {
     fetchMetricsAndHealth();
     loadPatients();
+    fetchSpeechConfig().then(cfg => {
+      if (cfg) setSpeechConfig(cfg);
+    });
     const interval = setInterval(fetchMetricsAndHealth, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleToggleSpeechProvider = (newProvider) => {
+    setSpeechProvider(newProvider);
+    setSpeechProviderState(newProvider);
+  };
+
+  const handleTestTts = () => {
+    if (testTtsPlaying) {
+      cancelSpeech();
+      setTestTtsPlaying(false);
+      return;
+    }
+
+    const testPhrases = {
+      'hi': 'नमस्ते, मेडीकियोस्क क्लिनिकल प्रणाली में आपका स्वागत है। कृपया अपनी समस्या बताएं।',
+      'en': 'Hello, welcome to MediKiosk Clinical Intake System. Please describe your condition.',
+      'mr': 'नमस्कार, मेडीकियोस्क क्लिनिकल प्रणालीमध्ये आपले स्वागत आहे. कृपया आपला त्रास सांगा.',
+      'te': 'నమస్కారం, మెడికియోస్క్ క్లినికల్ వ్యవస్థకు స్వాగతం. దయచేసి మీ సమస్యను వివరించండి.'
+    };
+
+    const phrase = testPhrases[testSpeechLang] || testPhrases['hi'];
+    setTestTtsPlaying(true);
+    speakText(phrase, testSpeechLang, () => {
+      setTestTtsPlaying(false);
+    });
+  };
+
+  const handleTestAsr = () => {
+    if (testAsrListening) {
+      if (testAsrRecRef.current && testAsrRecRef.current.stop) {
+        try { testAsrRecRef.current.stop(); } catch (e) {}
+      }
+      setTestAsrListening(false);
+      setTestAsrLevel(0);
+      return;
+    }
+
+    setTestAsrTranscript('');
+    setTestAsrListening(true);
+    setTestAsrLevel(0);
+
+    const rec = startListening({
+      lang: testSpeechLang,
+      onAudioLevel: (lvl) => setTestAsrLevel(lvl),
+      onResult: (transcript, isFinal) => {
+        if (transcript) setTestAsrTranscript(transcript);
+        if (isFinal) {
+          setTestAsrListening(false);
+          setTestAsrLevel(0);
+        }
+      },
+      onError: () => {
+        setTestAsrListening(false);
+        setTestAsrLevel(0);
+      },
+      onEnd: () => {
+        setTestAsrListening(false);
+        setTestAsrLevel(0);
+      }
+    });
+    testAsrRecRef.current = rec;
+  };
 
   const filteredPatients = patients.filter(p => {
     const q = patientSearch.toLowerCase().trim();
@@ -649,6 +735,149 @@ export default function AdminPanel() {
               <pre>{JSON.stringify(hisResult, null, 2)}</pre>
             </div>
           )}
+        </div>
+
+        {/* Speech & Indian-Language Voice AI Diagnostics */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col gap-4 md:col-span-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-800 shrink-0">
+                <Volume2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">Speech & Indian-Language Voice AI Engine</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pluggable Speech Gateway: Browser Web Speech API fallback + Bhashini (AI4Bharat / Digital India)
+                </p>
+              </div>
+            </div>
+
+            {/* Provider Switcher Toggle */}
+            <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+              <span className="text-[11px] font-bold text-slate-500 pl-2">Active Provider:</span>
+              <button
+                type="button"
+                onClick={() => handleToggleSpeechProvider('browser')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  speechProvider === 'browser'
+                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                Browser (Fallback)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleSpeechProvider('bhashini')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                  speechProvider === 'bhashini'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Bhashini Live
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Status & Credential Info */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Gateway Status</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`w-2.5 h-2.5 rounded-full ${speechConfig?.bhashiniConfigured ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></span>
+                  <span className="text-xs font-black text-slate-800">
+                    {speechConfig?.bhashiniConfigured ? 'Bhashini API Online' : 'Browser Offline Fallback Active'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  {speechConfig?.bhashiniConfigured
+                    ? 'Connected to Bhashini Dhruva pipeline. Real-time regional ASR and female neural TTS active.'
+                    : 'BHASHINI_API_KEY is not configured in backend/.env. System is operating in browser Web Speech fallback mode.'}
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200/80 text-[10px] text-slate-400">
+                Docs: <span className="font-mono text-slate-600">bhashini.gov.in/ulca</span>
+              </div>
+            </div>
+
+            {/* Test Controls */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between gap-3 lg:col-span-2">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Interactive Speech Sandbox</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-slate-600">Test Language:</span>
+                    <select
+                      value={testSpeechLang}
+                      onChange={(e) => setTestSpeechLang(e.target.value)}
+                      className="text-xs font-bold bg-white border border-slate-300 rounded-lg px-2 py-1 focus:outline-none"
+                    >
+                      <option value="hi">Hindi (हिंदी)</option>
+                      <option value="en">Indian English</option>
+                      <option value="mr">Marathi (मराठी)</option>
+                      <option value="te">Telugu (తెలుగు)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2.5 mt-3">
+                  {/* Test TTS */}
+                  <button
+                    onClick={handleTestTts}
+                    className={`px-4 py-2 text-xs font-black rounded-xl border flex items-center gap-2 transition-all cursor-pointer shadow-sm ${
+                      testTtsPlaying
+                        ? 'bg-amber-600 text-white border-amber-600 animate-pulse'
+                        : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Volume2 className="w-4 h-4 text-amber-600" />
+                    <span>{testTtsPlaying ? 'Playing Audio...' : 'Test Voice Output (TTS)'}</span>
+                  </button>
+
+                  {/* Test ASR */}
+                  <button
+                    onClick={handleTestAsr}
+                    className={`px-4 py-2 text-xs font-black rounded-xl border flex items-center gap-2 transition-all cursor-pointer shadow-sm ${
+                      testAsrListening
+                        ? 'bg-red-600 text-white border-red-600 animate-pulse'
+                        : 'bg-slate-800 text-white border-slate-800 hover:bg-slate-900'
+                    }`}
+                  >
+                    {testAsrListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-amber-400" />}
+                    <span>{testAsrListening ? 'Listening (Speak Now)...' : 'Test Microphone Input (ASR)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Dynamic feedback: level & transcript */}
+              {(testAsrListening || testAsrTranscript) && (
+                <div className="mt-2 p-3 bg-slate-900 text-white rounded-xl border border-slate-800 flex flex-col gap-2">
+                  {testAsrListening && (
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                      <span>Audio Input Level: {testAsrLevel}%</span>
+                      <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-amber-400 h-full transition-all duration-75"
+                          style={{ width: `${testAsrLevel}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {testAsrTranscript && (
+                    <div className="text-xs">
+                      <span className="text-slate-400 font-bold">Transcription: </span>
+                      <span className="text-emerald-400 font-medium">"{testAsrTranscript}"</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

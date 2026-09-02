@@ -7,7 +7,8 @@ import {
   ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3,
   Stethoscope, Settings
 } from 'lucide-react';
-import { speakText, cancelSpeech, startListening, isSTTSupported } from '../services/speechService.js';
+import { speakText, cancelSpeech, startListening, isSTTSupported, getSpeechProvider, getRecoveryPrompt } from '../services/speechService.js';
+import AudioWaveformVisualizer from '../components/AudioWaveformVisualizer.jsx';
 import { checkRedFlagCondition } from '../services/redFlagDetector.js';
 import { extractDocumentWithDocAI, SAMPLE_DOCUMENTS, getLabFlagBadgeClass } from '../services/docAiService.js';
 import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../services/ayushFlowData.js';
@@ -88,6 +89,8 @@ export default function KioskPage() {
   // Voice Interaction State
   const [voiceText, setVoiceText] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [showRecoveryBanner, setShowRecoveryBanner] = useState(false);
   const recognitionRef = useRef(null);
 
   // Red Flag Alert State
@@ -331,13 +334,14 @@ export default function KioskPage() {
     }
   };
 
-  // Toggle Voice Input
+  // Toggle Voice Input with Live Audio Analysis & Silence Detection
   const handleToggleVoice = () => {
     if (isListening) {
-      if (recognitionRef.current) {
+      if (recognitionRef.current && recognitionRef.current.stop) {
         try { recognitionRef.current.stop(); } catch (e) {}
       }
       setIsListening(false);
+      setAudioLevel(0);
       return;
     }
 
@@ -347,21 +351,39 @@ export default function KioskPage() {
     }
 
     cancelSpeech();
+    setShowRecoveryBanner(false);
     setIsListening(true);
+    setAudioLevel(0);
 
     const rec = startListening({
       lang: selectedLanguage,
+      onAudioLevel: (lvl) => {
+        setAudioLevel(lvl);
+      },
+      onSilenceDetected: () => {
+        console.log('[Kiosk Voice] Auto-stopped after silence detected.');
+      },
       onResult: (transcript, isFinal) => {
-        setVoiceText(transcript);
+        if (transcript && transcript.trim()) {
+          setVoiceText(transcript);
+          setShowRecoveryBanner(false);
+        } else if (isFinal && !transcript) {
+          setShowRecoveryBanner(true);
+        }
         if (isFinal) {
           setIsListening(false);
+          setAudioLevel(0);
         }
       },
-      onError: () => {
+      onError: (err) => {
+        console.warn('[Kiosk Voice] Recognition error:', err);
         setIsListening(false);
+        setAudioLevel(0);
+        setShowRecoveryBanner(true);
       },
       onEnd: () => {
         setIsListening(false);
+        setAudioLevel(0);
       }
     });
 
@@ -1427,6 +1449,17 @@ export default function KioskPage() {
               </div>
             </div>
 
+            {/* Dynamic Waveform & Voice Visualizer */}
+            <AudioWaveformVisualizer
+              isListening={isListening}
+              audioLevel={audioLevel}
+              provider={getSpeechProvider()}
+              showRecovery={showRecoveryBanner}
+              onRetry={handleToggleVoice}
+              lang={selectedLanguage}
+              theme="blue"
+            />
+
             {/* Voice section */}
             <div className="border-t border-slate-100 pt-5 flex flex-col gap-3">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Answer:</span>
@@ -1549,6 +1582,17 @@ export default function KioskPage() {
                 ))}
               </div>
             </div>
+
+            {/* AYUSH Dynamic Waveform & Voice Visualizer */}
+            <AudioWaveformVisualizer
+              isListening={isListening}
+              audioLevel={audioLevel}
+              provider={getSpeechProvider()}
+              showRecovery={showRecoveryBanner}
+              onRetry={handleToggleVoice}
+              lang={selectedLanguage}
+              theme="emerald"
+            />
 
             <div className="border-t border-slate-100 pt-5 flex flex-col gap-3">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Ayurvedic Symptoms:</span>

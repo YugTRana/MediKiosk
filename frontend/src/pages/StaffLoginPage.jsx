@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ShieldAlert, User, Lock, Loader2, Hospital } from 'lucide-react';
+import { ShieldAlert, User, Lock, Loader2, Building2 } from 'lucide-react';
 import { staffLogin } from '../services/authService';
 
 export default function StaffLoginPage() {
@@ -42,7 +42,7 @@ export default function StaffLoginPage() {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100">
         <div className="bg-slate-900 p-8 text-center relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-10">
-            <Hospital size={80} />
+            <Building2 size={80} />
           </div>
           <ShieldAlert className="w-12 h-12 text-teal-400 mx-auto mb-4 relative z-10" />
           <h1 className="text-2xl font-bold text-white relative z-10">Staff Portal Access</h1>
