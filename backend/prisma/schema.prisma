@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Patient {
+  id        String    @id @default(cuid())
+  name      String
+  mobile    String    @unique
+  password  String
+  age       Int
+  gender    String
+  address   String?
+  createdAt DateTime  @default(now())
+  sessions  Session[]
+}
+
+model Session {
+  id                String             @id
+  tokenNumber       String             @unique
+  submittedAt       DateTime           @default(now())
+  complaintId       String
+  complaintTitle    String
+  language          String             @default("English")
+  consentStatus     String             @default("GRANTED")
+  consentTimestamp  DateTime           @default(now())
+  status            String             @default("WAITING_OPD") // WAITING_OPD | TRIAGE_URGENT | COMPLETED | CALLED
+  answers           String             // JSON stringified array of Q&A responses
+  redFlagsTriggered String             @default("[]") // JSON stringified array
+  ayushAssessment   String?            // JSON stringified AYUSH dosha/agni data
+  patientId         String?
+  patient           Patient?           @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  digitizedDocument DigitizedDocument?
+  redFlags          RedFlagAlert[]
+  hisPush           HisPushedRecord?
+}
+
+model DigitizedDocument {
+  id              String   @id @default(cuid())
+  sessionId       String?  @unique
+  session         Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  fileName        String
+  documentType    String   @default("auto")
+  documentTitle   String
+  facility        String?
+  date            String?
+  prescriber      String?
+  imagingFindings String?
+  rawText         String?  // Actual OCR raw text
+  medications     String   @default("[]") // JSON stringified array
+  labValues       String   @default("[]") // JSON stringified array
+  diagnoses       String   @default("[]") // JSON stringified array
+  confidenceScore Float    @default(0.96)
+  createdAt       DateTime @default(now())
+}
+
+model RedFlagAlert {
+  id            String   @id @default(cuid())
+  sessionId     String?
+  session       Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  complaintId   String?
+  reason        String
+  triggerReason String?
+  severity      String   @default("CRITICAL")
+  status        String   @default("ACTIVE_ALERT")
+  timestamp     DateTime @default(now())
+  dismissed     Boolean  @default(false)
+  dismissedBy   String?
+}
+
+model HisPushedRecord {
+  id            String   @id @default(cuid())
+  sessionId     String?  @unique
+  session       Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  emrRecordId   String?
+  hospitalName  String?  @default("District Central Government Hospital")
+  department    String?  @default("Outpatient General & Integrated Medicine")
+  resourceCount Int?     @default(5)
+  fhirBundle    String   // JSON stringified FHIR Bundle
+  status        String   @default("SYNCED")
+  hospitalCode  String   @default("HOSP-MAHA-001")
+  pushedAt      DateTime @default(now())
+}

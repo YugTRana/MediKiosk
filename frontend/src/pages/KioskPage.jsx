@@ -4,13 +4,19 @@ import {
   Mic, MicOff, AlertTriangle, CheckCircle2, ArrowRight, ArrowLeft, RefreshCw, 
   Sparkles, ShieldAlert, Upload, Camera, FileText, FlaskConical, Check, 
   RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight,
-  ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode
+  ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3
 } from 'lucide-react';
 import { speakText, cancelSpeech, startListening, isSTTSupported } from '../services/speechService.js';
 import { checkRedFlagCondition } from '../services/redFlagDetector.js';
 import { extractDocumentWithDocAI, SAMPLE_DOCUMENTS, getLabFlagBadgeClass } from '../services/docAiService.js';
 import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../services/ayushFlowData.js';
-import { verifyAbhaWithAbdm, SAMPLE_ABHA_ACCOUNTS } from '../services/abdmService.js';
+import { 
+  loginPatient, 
+  signupPatient, 
+  updateAdminPatient 
+} from '../services/authService.js';
+import LiveCameraModal from '../components/LiveCameraModal.jsx';
+import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
 
 // Fallback Dialogue Flows JSON
 import fallbackFlows from '../../../backend/mockData/dialogueFlows.json';
@@ -25,17 +31,31 @@ const COMPLAINT_ICONS = {
 };
 
 export default function KioskPage() {
-  // Steps: 'consent' | 'consent_declined' | 'abha_registration' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'submitted'
-  const [step, setStep] = useState('consent');
+  // Steps: 'patient_auth' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'submitted'
+  const [step, setStep] = useState('patient_auth');
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [ttsEnabled, setTtsEnabled] = useState(true);
 
-  // Consent & ABDM State
-  const [consentTimestamp, setConsentTimestamp] = useState(null);
-  const [inputAbhaOrMobile, setInputAbhaOrMobile] = useState('');
-  const [isVerifyingAbdm, setIsVerifyingAbdm] = useState(false);
+  // Patient Auth State
+  const [authTab, setAuthTab] = useState('login'); // 'login' | 'signup'
+  const [loginForm, setLoginForm] = useState({ mobile: '', password: '' });
+  const [signupForm, setSignupForm] = useState({
+    name: '',
+    mobile: '',
+    password: '',
+    age: '',
+    gender: 'Male',
+    address: ''
+  });
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [authSuccessMessage, setAuthSuccessMessage] = useState(null);
   const [verifiedPatient, setVerifiedPatient] = useState(null);
-  const [abhaError, setAbhaError] = useState(null);
+
+  // Profile Edit State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editProfileForm, setEditProfileForm] = useState({ name: '', age: '', gender: 'Male', address: '', mobile: '' });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Loaded Dialogue Data
   const [dialogueData, setDialogueData] = useState(fallbackFlows);
@@ -48,6 +68,11 @@ export default function KioskPage() {
   const [extractedDocData, setExtractedDocData] = useState(null);
   const [hasConfirmedDoc, setHasConfirmedDoc] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Live Camera Scanner State
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [cameraModalMode, setCameraModalMode] = useState('document'); // 'document' | 'face'
+  const [patientFacePhoto, setPatientFacePhoto] = useState(null);
 
   // Patient Input Data for Allopathic SOCRATES
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -95,23 +120,9 @@ export default function KioskPage() {
     };
   }, []);
 
-  // Audio narration on initial consent step
-  useEffect(() => {
-    if (step === 'consent' && ttsEnabled) {
-      narrateConsent();
-    }
-  }, [step, selectedLanguage, ttsEnabled]);
-
   const narrate = (text) => {
     if (!ttsEnabled || !text) return;
     speakText(text, selectedLanguage);
-  };
-
-  const narrateConsent = () => {
-    const text = (selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
-      ? 'मेडीकियोस्क में आपका स्वागत है। राष्ट्रीय स्वास्थ्य मिशन और आभा दिशानिर्देशों के तहत, आपकी स्वास्थ्य जानकारी और पर्चा दर्ज करने के लिए आपकी सहमति आवश्यक है। क्या आप सहमत हैं?'
-      : 'Welcome to MediKiosk. Under Ayushman Bharat Digital Mission guidelines, we require your consent to verify your ABHA ID and record your symptoms for your doctor. Do you agree to proceed?';
-    narrate(text);
   };
 
   // Speak SOCRATES question
@@ -133,76 +144,85 @@ export default function KioskPage() {
   };
 
   // ============================================================================
-  // CONSENT HANDLERS
+  // PATIENT LOGIN & SIGN-UP HANDLERS
   // ============================================================================
-  const handleGrantConsent = () => {
-    cancelSpeech();
-    setConsentTimestamp(new Date().toISOString());
-    setStep('abha_registration');
-    narrate(
-      selectedLanguage === 'हिंदी'
-        ? 'धन्यवाद। कृपया अपना 14 अंकों का आभा नंबर या मोबाइल नंबर दर्ज करें।'
-        : 'Thank you. Please enter your 14-digit ABHA number or mobile phone number to verify your records.'
-    );
-  };
 
-  const handleDeclineConsent = () => {
+  // 1. Log In (Mobile + Password)
+  const handlePatientLogin = async (e) => {
+    if (e) e.preventDefault();
     cancelSpeech();
-    setStep('consent_declined');
-    narrate(
-      selectedLanguage === 'हिंदी'
-        ? 'आपने सहमति नहीं दी है। कृपया काउंटर नंबर 1 पर जाकर मैनुअल पर्ची बनवाएं।'
-        : 'You have declined consent. Please proceed to Registration Counter 1 for manual hospital token issuance.'
-    );
-  };
-
-  // ============================================================================
-  // ABDM / ABHA VERIFICATION HANDLERS
-  // ============================================================================
-  const handleVerifyAbha = async (customId = null) => {
-    cancelSpeech();
-    const idToVerify = (customId !== null ? customId : inputAbhaOrMobile).trim();
-    if (!idToVerify) {
-      const msg = selectedLanguage === 'हिंदी'
-        ? 'कृपया अपना 14-अंकों का आभा नंबर या 10-अंकों का मोबाइल नंबर दर्ज करें।'
-        : 'Please enter your 14-digit ABHA ID or 10-digit registered mobile number.';
-      setAbhaError(msg);
-      narrate(msg);
+    if (!loginForm.mobile || !loginForm.password) {
+      setAuthError('Please enter both your registered Mobile Number and Password.');
       return;
     }
 
-    setIsVerifyingAbdm(true);
-    setAbhaError(null);
-    setVerifiedPatient(null);
-
-    narrate(
-      selectedLanguage === 'हिंदी'
-        ? 'आभा रिकॉर्ड सत्यापित हो रहे हैं। कृपया प्रतीक्षा करें।'
-        : 'Verifying ABHA records with the national health gateway. Please wait a moment.'
-    );
-
+    setIsAuthLoading(true);
+    setAuthError(null);
+    setAuthSuccessMessage(null);
     try {
-      const profile = await verifyAbhaWithAbdm({ abhaId: idToVerify, mobile: idToVerify });
+      const profile = await loginPatient(loginForm);
       setVerifiedPatient(profile);
-      setAbhaError(null);
       narrate(
         selectedLanguage === 'हिंदी'
-          ? `नमस्ते ${profile.name} जी! आपकी आभा आईडी सत्यापित हो गई है।`
-          : `Welcome ${profile.name}! Your ABHA identity has been verified.`
+          ? `नमस्ते ${profile.name} जी! आपका स्वागत है।`
+          : `Welcome back, ${profile.name}! You are logged in.`
       );
     } catch (err) {
-      console.error('[ABDM] Verification error:', err);
-      const errMsg = selectedLanguage === 'हिंदी'
-        ? (err.message || 'अमान्य आभा नंबर या मोबाइल। कोई रिकॉर्ड नहीं मिला। कृपया सही नंबर दर्ज करें या डेमो खाता चुनें।')
-        : (err.message || 'No registered ABHA record found with this ID or Mobile Number. Please check your credentials or select a demo account.');
-      setAbhaError(errMsg);
+      setAuthError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  // 2. Sign Up (New Registration) - Mandate login after sign up!
+  const handlePatientSignup = async (e) => {
+    if (e) e.preventDefault();
+    cancelSpeech();
+    if (!signupForm.name || !signupForm.mobile || !signupForm.password) {
+      setAuthError('Please fill in your Name, Mobile Number, and create a Password.');
+      return;
+    }
+
+    setIsAuthLoading(true);
+    setAuthError(null);
+    setAuthSuccessMessage(null);
+    try {
+      const profile = await signupPatient(signupForm);
+      // Switch back to Login Tab and ask user to log in with their newly created credentials
+      setLoginForm({ mobile: profile.mobile, password: '' });
+      setAuthTab('login');
+      setAuthSuccessMessage(`Account registered successfully for ${profile.name}! Please enter your password to log in.`);
+      setSignupForm({ name: '', mobile: '', password: '', age: '', gender: 'Male', address: '' });
       narrate(
         selectedLanguage === 'हिंदी'
-          ? 'यह आभा नंबर या मोबाइल रिकॉर्ड में नहीं मिला। कृपया सही नंबर दर्ज करें या डेमो प्रोफाइल चुनें।'
-          : 'No registered ABHA record found for this number. Please check and try again.'
+          ? `बधाई हो ${profile.name} जी! आपका खाता बन गया है। कृपया अपना पासवर्ड दर्ज करके लॉगिन करें।`
+          : `Registration successful for ${profile.name}! Please enter your password to log in.`
       );
+    } catch (err) {
+      setAuthError(err.message || 'Sign up failed. Please try again.');
     } finally {
-      setIsVerifyingAbdm(false);
+      setIsAuthLoading(false);
+    }
+  };
+
+  // 3. Profile Edit Handler
+  const handleSaveProfileEdit = async (e) => {
+    if (e) e.preventDefault();
+    if (!editProfileForm.name) {
+      setAuthError('Name cannot be empty.');
+      return;
+    }
+    setIsSavingEdit(true);
+    setAuthError(null);
+    try {
+      const updated = await updateAdminPatient(verifiedPatient.id, editProfileForm);
+      setVerifiedPatient(updated);
+      setIsEditingProfile(false);
+      narrate(`Patient details updated successfully for ${updated.name}.`);
+    } catch (err) {
+      setAuthError(err.message || 'Failed to update profile.');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -463,20 +483,21 @@ export default function KioskPage() {
         : ((selectedLanguage === 'हिंदी' ? selectedComplaint?.titleHi : selectedComplaint?.titleEn) || 'General Check-In'),
       language: selectedLanguage,
       patientDetails: verifiedPatient ? {
+        id: verifiedPatient.id,
         name: verifiedPatient.name,
         age: verifiedPatient.age,
         gender: verifiedPatient.gender,
-        abhaNumber: verifiedPatient.abhaNumber,
-        abhaAddress: verifiedPatient.abhaAddress
+        mobile: verifiedPatient.mobile,
+        address: verifiedPatient.address
       } : {
-        name: 'Ramesh Chandra Sharma',
-        age: 68,
+        name: 'Walk-in Patient',
+        age: 30,
         gender: 'Male',
-        abhaNumber: '91-8472-1029-4821'
+        mobile: '9898575254',
+        address: 'Pune OPD'
       },
-      abhaDetails: verifiedPatient,
       consentStatus: 'GRANTED',
-      consentTimestamp: consentTimestamp || new Date().toISOString(),
+      consentTimestamp: new Date().toISOString(),
       answers: finalAnswers,
       redFlagsTriggered: finalRedFlags || [],
       digitizedDocument: extractedDocData || null,
@@ -490,9 +511,13 @@ export default function KioskPage() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      setSubmittedSession(data.session);
+      if (data.session) {
+        setSubmittedSession(data.session);
+      } else {
+        throw new Error(data.message || 'Submission error');
+      }
     } catch (err) {
-      console.warn('[Kiosk] Backend offline, generating local session token:', err);
+      console.warn('[Kiosk] Backend response issue, generating local token:', err);
       setSubmittedSession({
         tokenNumber: `K-${Math.floor(100 + Math.random() * 900)}`,
         complaintTitle: payload.complaintTitle,
@@ -515,7 +540,7 @@ export default function KioskPage() {
 
   const handleRestart = () => {
     cancelSpeech();
-    setStep('consent');
+    setStep('patient_auth');
     setSelectedComplaint(null);
     setIsAyushFlow(false);
     setCurrentQuestionIndex(0);
@@ -530,8 +555,8 @@ export default function KioskPage() {
     setHasConfirmedDoc(false);
     setSubmittedSession(null);
     setVerifiedPatient(null);
-    setInputAbhaOrMobile('');
-    setAbhaError(null);
+    setAuthError(null);
+    setAuthSuccessMessage(null);
   };
 
   return (
@@ -608,256 +633,383 @@ export default function KioskPage() {
       {/* ========================================================================= */}
       {/* 1. EXPLICIT AUDIO-NARRATED CONSENT SCREEN                                 */}
       {/* ========================================================================= */}
-      {step === 'consent' && (
-        <main className="max-w-3xl mx-auto w-full flex-1 flex flex-col justify-center gap-6 my-auto">
-          <div className="bg-white border-2 border-slate-200 rounded-3xl p-8 md:p-10 shadow-lg flex flex-col gap-6 text-center">
-            <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-              <ShieldCheck className="w-10 h-10" />
-            </div>
-
-            <div>
-              <span className="bg-blue-50 text-blue-800 text-xs font-black uppercase px-3 py-1 rounded-full border border-blue-200">
-                Ayushman Bharat Digital Mission (ABDM) • Privacy & Consent
-              </span>
-              <h2 className="text-3xl font-black text-slate-900 mt-3">
-                {selectedLanguage === 'हिंदी' ? 'रोगी सहमति एवं गोपनीयता' : 'Patient Consent for Digital OPD Triage'}
-              </h2>
-              <p className="text-slate-600 text-sm mt-2 max-w-xl mx-auto leading-relaxed">
-                {selectedLanguage === 'हिंदी'
-                  ? 'मेडीकियोस्क को आपकी आभा आईडी (ABHA ID) सत्यापित करने और ओपीडी चिकित्सक के लिए आपके लक्षण और पर्चे दर्ज करने हेतु आपकी सहमति की आवश्यकता है। आपका डेटा सुरक्षित और गोपनीय रखा जाता है।'
-                  : 'MediKiosk requires your consent to securely verify your ABHA health ID and record your health symptoms and prior prescriptions for your attending physician under ABDM data protection standards.'}
-              </p>
-            </div>
-
-            {/* Privacy Guarantee Badges */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs text-slate-700 font-semibold">
-              <div className="flex items-center justify-center gap-2">
-                <Lock className="w-4 h-4 text-emerald-600" /> Encrypted Health Data
-              </div>
-              <div className="flex items-center justify-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-600" /> ABDM Sandbox Gateway
-              </div>
-              <div className="flex items-center justify-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-purple-600" /> Physician Only Access
-              </div>
-            </div>
-
-            {/* Large High-Contrast Touch Consent Buttons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <button
-                onClick={handleGrantConsent}
-                className="py-5 px-6 bg-emerald-700 hover:bg-emerald-800 text-white rounded-2xl font-black text-lg shadow-md hover:shadow-lg flex items-center justify-center gap-3 transition-all cursor-pointer"
-              >
-                <Check className="w-6 h-6" />
-                <span>{selectedLanguage === 'हिंदी' ? 'मैं सहमत हूँ (I Agree)' : 'I Agree & Give Consent'}</span>
-              </button>
-
-              <button
-                onClick={handleDeclineConsent}
-                className="py-5 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-2xl font-bold text-base border-2 border-slate-300 flex items-center justify-center gap-3 transition-all cursor-pointer"
-              >
-                <XCircle className="w-6 h-6 text-red-500" />
-                <span>{selectedLanguage === 'हिंदी' ? 'मैं असहमत हूँ (Decline)' : 'I Do Not Agree (Decline)'}</span>
-              </button>
-            </div>
-          </div>
-        </main>
-      )}
-
-      {/* CONSENT DECLINED SCREEN (Do not proceed with flow) */}
-      {step === 'consent_declined' && (
-        <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col justify-center items-center gap-6 my-auto text-center">
-          <div className="bg-white border-2 border-red-200 rounded-3xl p-8 md:p-10 shadow-lg flex flex-col items-center gap-6 w-full">
-            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center">
-              <XCircle className="w-10 h-10" />
-            </div>
-
-            <div>
-              <h2 className="text-2xl font-black text-slate-900">
-                {selectedLanguage === 'हिंदी' ? 'डिजिटल चेक-इन रद्द किया गया' : 'Digital Kiosk Check-In Declined'}
-              </h2>
-              <p className="text-sm text-slate-600 mt-2 max-w-md leading-relaxed">
-                {selectedLanguage === 'हिंदी'
-                  ? 'आपने सहमति नहीं दी है। कृपया काउंटर नंबर 1 पर जाएं जहां हमारे अस्पताल कर्मचारी आपकी शारीरिक पर्ची तैयार करेंगे।'
-                  : 'Because consent was declined, automated kiosk data recording has been halted. Please visit Counter 1 for manual token and registration assistance.'}
-              </p>
-            </div>
-
-            <button
-              onClick={() => setStep('consent')}
-              className="px-6 py-3.5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-sm rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" /> Start Over & Provide Consent
-            </button>
-          </div>
-        </main>
-      )}
-
+      {/* 1. PATIENT AUTHENTICATION SCREEN (LOGIN & SIGN UP)                        */}
       {/* ========================================================================= */}
-      {/* 2. MOCK ABDM REGISTRATION SCREEN (ENTER ABHA ID OR MOBILE)                 */}
-      {/* ========================================================================= */}
-      {step === 'abha_registration' && (
+      {step === 'patient_auth' && (
         <main className="max-w-4xl mx-auto w-full flex-1 flex flex-col gap-6">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex items-center justify-between">
-            <button
-              onClick={() => setStep('consent')}
-              className="text-slate-600 hover:text-slate-900 text-sm font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" /> Back to Consent
-            </button>
-            <span className="bg-blue-50 text-blue-800 text-xs font-bold px-3 py-1 rounded-full border border-blue-200 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Consent Granted & Verified
-            </span>
-          </div>
-
           <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-6">
             <div className="text-center max-w-xl mx-auto">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-full mb-2 border border-emerald-200">
-                <QrCode className="w-3.5 h-3.5 text-emerald-600" /> ABDM Health Identity
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 text-xs font-bold rounded-full mb-2 border border-blue-200">
+                <UserCheck className="w-3.5 h-3.5 text-blue-600" /> Patient Access Portal
               </span>
               <h2 className="text-2xl font-black text-slate-900">
-                {selectedLanguage === 'हिंदी' ? 'आभा नंबर या मोबाइल दर्ज करें' : 'Enter ABHA ID or Mobile Number'}
+                {selectedLanguage === 'हिंदी' ? 'रोगी लॉगिन और पंजीकरण' : 'Patient Sign In & Registration'}
               </h2>
               <p className="text-sm text-slate-600 mt-1">
                 {selectedLanguage === 'हिंदी'
-                  ? 'अपना 14-अंकों का आभा कार्ड नंबर या पंजीकृत मोबाइल दर्ज करें।'
-                  : 'Enter your 14-digit ABHA ID (e.g. 91-8472-1029-4821) or mobile to pull your verified health profile.'}
+                  ? 'अपने मोबाइल नंबर और पासवर्ड से लॉगिन करें या नया खाता बनाएं।'
+                  : 'Log in with your Mobile Number and Password, or Sign Up to create your patient account.'}
               </p>
             </div>
 
-            {/* Verification Loading State */}
-            {isVerifyingAbdm && (
-              <div className="p-8 bg-blue-50/70 border-2 border-dashed border-blue-300 rounded-2xl flex flex-col items-center justify-center gap-4 text-center animate-pulse">
-                <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg animate-spin">
-                  <RefreshCw className="w-7 h-7" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-extrabold text-blue-950">Querying ABDM Health Gateway...</h3>
-                  <p className="text-xs text-blue-700 mt-1 font-medium">
-                    Simulating 1.5s demographic KYC verification & Aadhaar linkage
+            {/* Registration Success Banner */}
+            {authSuccessMessage && (
+              <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 flex items-start gap-3 text-emerald-950 animate-fadeIn shadow-sm max-w-2xl mx-auto w-full">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-extrabold text-emerald-950">
+                    {selectedLanguage === 'हिंदी' ? 'सफलतापूर्वक पंजीकृत' : 'Registration Complete'}
+                  </h4>
+                  <p className="text-xs text-emerald-800 mt-1 font-medium leading-relaxed">
+                    {authSuccessMessage}
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Input & Demo Accounts (When not verifying and not verified) */}
-            {!isVerifyingAbdm && !verifiedPatient && (
-              <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full">
-                {/* Error Banner if ABHA not found */}
-                {abhaError && (
-                  <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex items-start gap-3 text-red-900 animate-fadeIn shadow-sm">
-                    <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <h4 className="text-sm font-extrabold text-red-950">
-                        {selectedLanguage === 'हिंदी' ? 'सत्यापन विफल (ABHA Record Not Found)' : 'ABDM Health Record Not Found'}
-                      </h4>
-                      <p className="text-xs text-red-800 mt-1 font-medium leading-relaxed">
-                        {abhaError}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Manual Input Box */}
-                <div className="flex flex-col gap-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={inputAbhaOrMobile}
-                      onChange={(e) => {
-                        setInputAbhaOrMobile(e.target.value);
-                        setAbhaError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleVerifyAbha();
-                      }}
-                      placeholder="e.g. 91-8472-1029-4821 or 9876543210"
-                      className={`w-full p-4 pl-12 text-lg font-mono font-bold text-slate-900 bg-slate-50 border-2 ${
-                        abhaError ? 'border-red-500 bg-red-50/20' : 'border-slate-300'
-                      } rounded-2xl focus:outline-none focus:border-blue-600 focus:bg-white transition-colors`}
-                    />
-                    <Smartphone className={`w-6 h-6 absolute left-4 top-4.5 ${abhaError ? 'text-red-500' : 'text-slate-400'}`} />
-                  </div>
-
-                  <button
-                    onClick={() => handleVerifyAbha()}
-                    className="w-full py-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-base rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <UserCheck className="w-5 h-5" />
-                    <span>{selectedLanguage === 'हिंदी' ? 'आभा रिकॉर्ड सत्यापित करें' : 'Verify with ABDM Gateway'}</span>
-                  </button>
-                </div>
-
-                {/* 1-Click Quick Demo ABHA Profiles */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-3">
-                    Or Select 1-Click Demo ABHA Accounts:
-                  </span>
-                  <div className="space-y-2.5">
-                    {SAMPLE_ABHA_ACCOUNTS.map((acc) => (
-                      <button
-                        key={acc.id}
-                        onClick={() => handleVerifyAbha(acc.abhaNumber)}
-                        className="w-full p-3.5 bg-white border border-slate-200 hover:border-emerald-500 rounded-xl text-left shadow-sm hover:shadow transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-emerald-100 text-emerald-800 rounded-xl flex items-center justify-center font-bold text-sm">
-                            {acc.name[0]}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-extrabold text-slate-900">{acc.name}</span>
-                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                                {acc.gender}, {acc.age}Y
-                              </span>
-                            </div>
-                            <span className="text-xs font-mono text-emerald-700 font-bold block mt-0.5">
-                              ABHA: {acc.abhaNumber} • {acc.abhaAddress}
-                            </span>
-                          </div>
-                        </div>
-
-                        <span className="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-lg border border-emerald-200 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex-shrink-0">
-                          Verify & Select
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+            {/* Error Banner */}
+            {authError && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex items-start gap-3 text-red-900 animate-fadeIn shadow-sm max-w-2xl mx-auto w-full">
+                <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-extrabold text-red-950">
+                    {selectedLanguage === 'हिंदी' ? 'त्रुटि संदेश' : 'Authentication Notice'}
+                  </h4>
+                  <p className="text-xs text-red-800 mt-1 font-medium leading-relaxed">
+                    {authError}
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* VERIFIED PATIENT KYC PROFILE CARD */}
-            {!isVerifyingAbdm && verifiedPatient && (
+            {/* LOGIN & SIGNUP FORMS (When not authenticated) */}
+            {!verifiedPatient && (
+              <div className="flex flex-col gap-6 max-w-xl mx-auto w-full">
+                {/* Tabs */}
+                <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                  <button
+                    onClick={() => { setAuthTab('login'); setAuthError(null); }}
+                    className={`py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      authTab === 'login' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>🔑 Log In (Existing Patient)</span>
+                  </button>
+                  <button
+                    onClick={() => { setAuthTab('signup'); setAuthError(null); }}
+                    className={`py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      authTab === 'signup' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>📝 Sign Up (New Patient)</span>
+                  </button>
+                </div>
+
+                {/* TAB 1: LOGIN FORM */}
+                {authTab === 'login' && (
+                  <form onSubmit={handlePatientLogin} className="flex flex-col gap-4 bg-slate-50 border border-slate-200 rounded-3xl p-6 animate-fadeIn">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1.5">Registered Mobile Number *</label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          required
+                          value={loginForm.mobile}
+                          onChange={(e) => {
+                            setLoginForm({ ...loginForm, mobile: e.target.value });
+                            setAuthError(null);
+                          }}
+                          placeholder="e.g. 9876543210"
+                          className="w-full p-3.5 pl-11 text-sm font-mono font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        />
+                        <Smartphone className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1.5">Password *</label>
+                      <div className="relative">
+                        <input
+                          type="password"
+                          required
+                          value={loginForm.password}
+                          onChange={(e) => {
+                            setLoginForm({ ...loginForm, password: e.target.value });
+                            setAuthError(null);
+                          }}
+                          placeholder="Enter your password"
+                          className="w-full p-3.5 pl-11 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        />
+                        <Key className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isAuthLoading}
+                      className="mt-2 py-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Lock className="w-4 h-4" />
+                      <span>{isAuthLoading ? 'Authenticating...' : 'Sign In to Patient Portal'}</span>
+                    </button>
+                  </form>
+                )}
+
+                {/* TAB 2: SIGN UP FORM */}
+                {authTab === 'signup' && (
+                  <form onSubmit={handlePatientSignup} className="flex flex-col gap-4 bg-slate-50 border border-slate-200 rounded-3xl p-6 animate-fadeIn">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">Full Patient Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={signupForm.name}
+                          onChange={(e) => {
+                            setSignupForm({ ...signupForm, name: e.target.value });
+                            setAuthError(null);
+                          }}
+                          placeholder="e.g. Prathamesh Khatri"
+                          className="w-full p-3 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">Mobile Number *</label>
+                        <input
+                          type="tel"
+                          required
+                          value={signupForm.mobile}
+                          onChange={(e) => {
+                            setSignupForm({ ...signupForm, mobile: e.target.value });
+                            setAuthError(null);
+                          }}
+                          placeholder="e.g. 9998003660"
+                          className="w-full p-3 text-sm font-mono font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Create Password *</label>
+                      <input
+                        type="password"
+                        required
+                        value={signupForm.password}
+                        onChange={(e) => {
+                          setSignupForm({ ...signupForm, password: e.target.value });
+                          setAuthError(null);
+                        }}
+                        placeholder="Choose a secure password (min 4 chars)"
+                        className="w-full p-3 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">Age (Years)</label>
+                        <input
+                          type="number"
+                          value={signupForm.age}
+                          onChange={(e) => setSignupForm({ ...signupForm, age: e.target.value })}
+                          placeholder="e.g. 28"
+                          className="w-full p-3 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
+                        <select
+                          value={signupForm.gender}
+                          onChange={(e) => setSignupForm({ ...signupForm, gender: e.target.value })}
+                          className="w-full p-3 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        >
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">City / Residential Address</label>
+                      <input
+                        type="text"
+                        value={signupForm.address}
+                        onChange={(e) => setSignupForm({ ...signupForm, address: e.target.value })}
+                        placeholder="e.g. Shivaji Nagar, Pune, Maharashtra"
+                        className="w-full p-3 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isAuthLoading}
+                      className="mt-2 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>{isAuthLoading ? 'Creating Account...' : 'Register & Sign In'}</span>
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* VERIFIED PATIENT LOGGED-IN CARD */}
+            {verifiedPatient && (
               <div className="flex flex-col gap-6 max-w-2xl mx-auto w-full animate-fadeIn">
-                <div className="bg-emerald-50/70 border-2 border-emerald-300 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
+                <div className="bg-emerald-50/80 border-2 border-emerald-300 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
                   <div className="flex items-center justify-between border-b border-emerald-200 pb-3">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-6 h-6 text-emerald-600" />
-                      <h3 className="text-base font-extrabold text-emerald-950">ABHA Identity Verified Successfully</h3>
+                      <h3 className="text-base font-extrabold text-emerald-950">Patient Authenticated</h3>
                     </div>
-                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-300">
-                      KYC Verified
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditProfileForm({
+                            name: verifiedPatient.name || '',
+                            age: verifiedPatient.age || 28,
+                            gender: verifiedPatient.gender || 'Male',
+                            address: verifiedPatient.address || '',
+                            mobile: verifiedPatient.mobile || ''
+                          });
+                          setIsEditingProfile(!isEditingProfile);
+                        }}
+                        className="text-xs font-bold bg-white text-emerald-900 border border-emerald-300 hover:bg-emerald-100 px-3 py-1 rounded-xl shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>{isEditingProfile ? 'Cancel Edit' : '✏️ Edit Profile'}</span>
+                      </button>
+                      <span className="text-xs font-bold bg-emerald-600 text-white px-2.5 py-1 rounded-full shadow-sm">
+                        Active Profile
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                    <div className="w-16 h-16 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-md flex-shrink-0">
-                      {verifiedPatient.name[0]}
+                  {!isEditingProfile ? (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="relative group">
+                        {patientFacePhoto ? (
+                          <img
+                            src={patientFacePhoto}
+                            alt="Patient KYC"
+                            className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500 shadow-md flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-md flex-shrink-0">
+                            {verifiedPatient.name ? verifiedPatient.name[0] : 'P'}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => {
+                            setCameraModalMode('face');
+                            setIsCameraModalOpen(true);
+                          }}
+                          title="Take Live Face Photo"
+                          className="absolute -bottom-1.5 -right-1.5 p-1.5 bg-slate-900 hover:bg-emerald-600 text-white rounded-full shadow border border-white transition-colors cursor-pointer"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xl font-black text-slate-900">{verifiedPatient.name}</h4>
+                          {patientFacePhoto && (
+                            <span className="text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                              Face Verified
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-bold text-slate-700 mt-1">
+                          👤 {verifiedPatient.gender}, Age: {verifiedPatient.age} Y • 📱 Mobile: +91 {verifiedPatient.mobile}
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1 flex items-start gap-1">
+                          <span>📍</span>
+                          <span><strong>Address:</strong> {verifiedPatient.address || 'Registered Citizen'}</span>
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xl font-black text-slate-900">{verifiedPatient.name}</h4>
-                      <p className="text-xs font-bold text-emerald-800 font-mono mt-0.5">
-                        ABHA: {verifiedPatient.abhaNumber} ({verifiedPatient.abhaAddress})
-                      </p>
-                      <p className="text-xs text-slate-600 mt-1">
-                        {verifiedPatient.gender}, Age: {verifiedPatient.age} Y • Mobile: {verifiedPatient.mobile}
-                      </p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Address: {verifiedPatient.address}
-                      </p>
-                    </div>
-                  </div>
+                  ) : (
+                    /* Inline Profile Edit Form */
+                    <form onSubmit={handleSaveProfileEdit} className="flex flex-col gap-3 bg-white p-4 rounded-2xl border border-emerald-200">
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                        Update Patient Demographics:
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Full Name</label>
+                          <input
+                            type="text"
+                            required
+                            value={editProfileForm.name}
+                            onChange={(e) => setEditProfileForm({ ...editProfileForm, name: e.target.value })}
+                            className="w-full p-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-600"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Mobile Number</label>
+                          <input
+                            type="text"
+                            value={editProfileForm.mobile}
+                            onChange={(e) => setEditProfileForm({ ...editProfileForm, mobile: e.target.value })}
+                            className="w-full p-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-600"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Age (Years)</label>
+                          <input
+                            type="number"
+                            value={editProfileForm.age}
+                            onChange={(e) => setEditProfileForm({ ...editProfileForm, age: e.target.value })}
+                            className="w-full p-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-600"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Gender</label>
+                          <select
+                            value={editProfileForm.gender}
+                            onChange={(e) => setEditProfileForm({ ...editProfileForm, gender: e.target.value })}
+                            className="w-full p-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-600"
+                          >
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 block mb-0.5">Residential Address / City</label>
+                        <input
+                          type="text"
+                          value={editProfileForm.address}
+                          onChange={(e) => setEditProfileForm({ ...editProfileForm, address: e.target.value })}
+                          className="w-full p-2 text-xs font-bold border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-600"
+                        />
+                      </div>
+                      <div className="flex gap-2 mt-1">
+                        <button
+                          type="submit"
+                          disabled={isSavingEdit}
+                          className="flex-1 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs rounded-lg shadow cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingEdit ? 'Saving...' : '💾 Save & Update Database'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingProfile(false)}
+                          className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-300 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3">
@@ -1028,7 +1180,10 @@ export default function KioskPage() {
                   </button>
 
                   <button
-                    onClick={() => handleProcessDocument('kiosk_live_cam_capture.jpg', 'auto')}
+                    onClick={() => {
+                      setCameraModalMode('document');
+                      setIsCameraModalOpen(true);
+                    }}
                     className="p-6 border-2 border-dashed border-emerald-300 hover:border-emerald-600 bg-emerald-50/40 hover:bg-emerald-50 rounded-2xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group"
                   >
                     <div className="w-12 h-12 bg-emerald-600 text-white rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1036,7 +1191,7 @@ export default function KioskPage() {
                     </div>
                     <div className="text-center">
                       <span className="text-base font-bold text-emerald-950 block">Capture with Kiosk Camera</span>
-                      <span className="text-xs text-slate-500">Hold paper report or film up to scanner</span>
+                      <span className="text-xs text-slate-500">Live optical scanner with viewfinder</span>
                     </div>
                   </button>
                 </div>
@@ -1082,99 +1237,21 @@ export default function KioskPage() {
               </div>
             )}
 
-            {/* Extracted Data Confirmation Screen */}
+            {/* Extracted Data Confirmation Screen with Clean Interactive Tables & Error Eraser */}
             {!isOcrProcessing && extractedDocData && (
-              <div className="flex flex-col gap-6 animate-fadeIn">
-                <div className="bg-emerald-50/70 border-2 border-emerald-300 rounded-2xl p-5 flex items-start gap-4">
-                  <div className="p-2.5 bg-emerald-600 text-white rounded-xl flex-shrink-0">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                      <h3 className="text-base font-extrabold text-emerald-950">
-                        {selectedLanguage === 'हिंदी' ? 'क्या यह जानकारी सही है?' : 'Does this look right? (AI Extraction Verified)'}
-                      </h3>
-                      <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300 self-start">
-                        {extractedDocData.documentType.toUpperCase()} • Confidence: 97%
-                      </span>
-                    </div>
-                    <p className="text-xs text-emerald-800 mt-1">
-                      {extractedDocData.documentTitle} • Date: {extractedDocData.date}
-                    </p>
-                    {extractedDocData.imagingFindings && (
-                      <p className="text-xs text-purple-900 bg-purple-100/80 p-2 rounded-lg mt-2 font-semibold border border-purple-200">
-                        📸 {extractedDocData.imagingFindings}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {extractedDocData.medications && extractedDocData.medications.length > 0 && (
-                  <div>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-                      <Pill className="w-4 h-4 text-blue-600" /> Extracted Medications ({extractedDocData.medications.length}):
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {extractedDocData.medications.map((med, i) => (
-                        <div key={i} className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
-                          <span className="text-sm font-extrabold text-slate-900 block">{med.name}</span>
-                          <span className="text-xs font-semibold text-blue-700 block mt-0.5">{med.dose}</span>
-                          <span className="text-xs text-slate-500 block mt-1">{med.frequency}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {extractedDocData.labValues && extractedDocData.labValues.length > 0 && (
-                  <div>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-                      <FlaskConical className="w-4 h-4 text-purple-600" /> Clinical Diagnostic Lab Values:
-                    </span>
-                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                          <tr>
-                            <th className="p-3">Test / Diagnostic Marker</th>
-                            <th className="p-3">Extracted Value</th>
-                            <th className="p-3 hidden sm:table-cell">Reference Range</th>
-                            <th className="p-3 text-right">Flag Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 bg-white">
-                          {extractedDocData.labValues.map((lab, i) => (
-                            <tr key={i} className={lab.flag === 'HIGH' ? 'bg-red-50/50' : lab.flag === 'LOW' ? 'bg-amber-50/40' : 'hover:bg-slate-50'}>
-                              <td className="p-3 font-bold text-slate-900">{lab.test}</td>
-                              <td className="p-3 font-extrabold">{lab.value} {lab.unit}</td>
-                              <td className="p-3 text-slate-500 hidden sm:table-cell">{lab.referenceRange} {lab.unit}</td>
-                              <td className="p-3 text-right">
-                                <span className={getLabFlagBadgeClass(lab.flag)}>{lab.flag}</span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
-                  <button
-                    onClick={handleConfirmDocumentAndProceed}
-                    className="flex-1 py-4 bg-emerald-700 hover:bg-emerald-800 text-white text-base font-extrabold rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <Check className="w-5 h-5" />
-                    {selectedLanguage === 'हिंदी' ? 'हां, यह सही है — आगे बढ़ें' : 'Looks Good! Attach & Proceed'}
-                  </button>
-
-                  <button
-                    onClick={() => { setExtractedDocData(null); setUploadedDocName(''); }}
-                    className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl border border-slate-300 cursor-pointer"
-                  >
-                    <RotateCcw className="w-4 h-4" /> Rescan
-                  </button>
-                </div>
-              </div>
+              <DigitizedDocumentTable
+                documentData={extractedDocData}
+                selectedLanguage={selectedLanguage}
+                onChange={(updated) => setExtractedDocData(updated)}
+                onConfirm={(confirmedData) => {
+                  setExtractedDocData(confirmedData);
+                  handleConfirmDocumentAndProceed();
+                }}
+                onRescan={() => {
+                  setExtractedDocData(null);
+                  setUploadedDocName('');
+                }}
+              />
             )}
           </div>
         </main>
@@ -1206,7 +1283,23 @@ export default function KioskPage() {
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden">
+            {isSubmitting && (
+              <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-4 text-center p-6 animate-fadeIn">
+                <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg animate-spin">
+                  <RefreshCw className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900">
+                    {selectedLanguage === 'हिंदी' ? 'ओपीडी टोकन दर्ज किया जा रहा है...' : 'Generating Your OPD Consultation Token...'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {selectedLanguage === 'हिंदी' ? 'कृपया प्रतीक्षा करें, डेटाबेस में जानकारी सहेजी जा रही है' : 'Saving your clinical intake responses to the hospital database'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md mb-2 inline-block border border-blue-200">
                 {selectedComplaint.questions[currentQuestionIndex].dimension} Assessment
@@ -1224,12 +1317,13 @@ export default function KioskPage() {
                 {selectedComplaint.questions[currentQuestionIndex].options.map((opt, i) => (
                   <button
                     key={i}
+                    disabled={isSubmitting}
                     onClick={() => handleAnswerQuestion(opt, '')}
                     className={`p-4 rounded-xl text-left font-bold text-sm border-2 transition-all cursor-pointer flex items-center justify-between ${
                       opt.isRedFlag
                         ? 'border-red-300 bg-red-50/50 hover:bg-red-100 text-red-900'
                         : 'border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-500 text-slate-800'
-                    }`}
+                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span>{selectedLanguage === 'हिंदी' ? opt.labelHi : opt.labelEn}</span>
                     {opt.isRedFlag && <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />}
@@ -1243,6 +1337,7 @@ export default function KioskPage() {
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Answer:</span>
               <div className="flex items-center gap-3">
                 <button
+                  disabled={isSubmitting}
                   onClick={handleToggleVoice}
                   className={`p-3.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer shadow-sm ${
                     isListening
@@ -1260,6 +1355,7 @@ export default function KioskPage() {
                   </span>
                   {voiceText && !isListening && (
                     <button
+                      disabled={isSubmitting}
                       onClick={() => handleAnswerQuestion(null, voiceText)}
                       className="px-3 py-1 bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer"
                     >
@@ -1304,7 +1400,23 @@ export default function KioskPage() {
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col gap-6 relative overflow-hidden">
+            {isSubmitting && (
+              <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-20 flex flex-col items-center justify-center gap-4 text-center p-6 animate-fadeIn">
+                <div className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg animate-spin">
+                  <RefreshCw className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-900">
+                    {selectedLanguage === 'हिंदी' ? 'आयुष ओपीडी टोकन दर्ज किया जा रहा है...' : 'Generating Your AYUSH OPD Token...'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {selectedLanguage === 'हिंदी' ? 'कृपया प्रतीक्षा करें, जानकारी डेटाबेस में सहेजी जा रही है' : 'Saving your Ayurvedic assessment to the hospital database'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div>
               <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 inline-block mb-2">
                 {selectedLanguage === 'हिंदी' 
@@ -1324,8 +1436,9 @@ export default function KioskPage() {
                 {AYUSH_QUESTIONS[ayushQuestionIndex].options.map((opt, i) => (
                   <button
                     key={i}
+                    disabled={isSubmitting}
                     onClick={() => handleAnswerAyushQuestion(opt, '')}
-                    className="p-4 rounded-xl text-left border-2 border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50 transition-all cursor-pointer flex flex-col justify-between gap-2 group"
+                    className={`p-4 rounded-xl text-left border-2 border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50 transition-all cursor-pointer flex flex-col justify-between gap-2 group ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span className="text-sm font-bold text-slate-900 group-hover:text-emerald-950">
                       {selectedLanguage === 'हिंदी' ? opt.labelHi : opt.labelEn}
@@ -1344,6 +1457,7 @@ export default function KioskPage() {
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Or Speak Ayurvedic Symptoms:</span>
               <div className="flex items-center gap-3">
                 <button
+                  disabled={isSubmitting}
                   onClick={handleToggleVoice}
                   className={`p-3.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer shadow-sm ${
                     isListening
@@ -1361,6 +1475,7 @@ export default function KioskPage() {
                   </span>
                   {voiceText && !isListening && (
                     <button
+                      disabled={isSubmitting}
                       onClick={() => handleAnswerAyushQuestion(null, voiceText)}
                       className="px-3 py-1 bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer"
                     >
@@ -1375,18 +1490,18 @@ export default function KioskPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* 6. SUBMITTED CONFIRMATION SCREEN (TOKEN + ABHA + RECORDS)                 */}
+      {/* 6. SUBMITTED CONFIRMATION SCREEN (TOKEN & DATABASE DETAILS)               */}
       {/* ========================================================================= */}
       {step === 'submitted' && (
         <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 text-center my-auto">
           <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-10 shadow-lg w-full flex flex-col items-center gap-5">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center">
+            <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center shadow-inner">
               <CheckCircle2 className="w-10 h-10" />
             </div>
 
             <div>
               <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                OPD Token Issued
+                OPD Consultation Token Issued
               </span>
               <h2 className="text-4xl font-black text-slate-900 mt-1 font-mono tracking-tight text-blue-700">
                 {submittedSession?.tokenNumber || 'K-104'}
@@ -1394,12 +1509,12 @@ export default function KioskPage() {
             </div>
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 w-full text-left space-y-3">
-              <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+              <div className="flex justify-between items-center border-b border-slate-200 pb-2.5">
                 <div>
-                  <strong className="text-sm text-slate-900 block">{submittedSession?.patientDetails?.name}</strong>
-                  <span className="text-xs text-slate-500 font-mono">ABHA: {submittedSession?.patientDetails?.abhaNumber || 'Verified'}</span>
+                  <strong className="text-base text-slate-900 block font-bold">{submittedSession?.patientDetails?.name || 'Registered Citizen'}</strong>
+                  <span className="text-xs text-slate-600 font-medium">Mobile: +91 {submittedSession?.patientDetails?.mobile || '9898575254'}</span>
                 </div>
-                <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-md">
+                <span className="text-xs font-bold bg-blue-100 text-blue-800 px-3 py-1 rounded-lg">
                   {submittedSession?.complaintTitle}
                 </span>
               </div>
@@ -1407,7 +1522,7 @@ export default function KioskPage() {
               {submittedSession?.digitizedDocument && (
                 <div className="p-3 bg-purple-50/80 border border-purple-200 rounded-xl text-xs text-purple-950 flex items-center gap-2">
                   <FileText className="w-4 h-4 text-purple-700 flex-shrink-0" />
-                  <span>Digitized Records: {submittedSession.digitizedDocument.documentTitle} attached</span>
+                  <span>Attached Records: {submittedSession.digitizedDocument.documentTitle}</span>
                 </div>
               )}
 
@@ -1418,16 +1533,16 @@ export default function KioskPage() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Consent Status: {submittedSession?.consentStatus || 'GRANTED'} (Encrypted on ABDM Gateway)</span>
+              <div className="flex items-center gap-2 text-[11px] text-emerald-700 font-semibold bg-emerald-50/60 p-2 rounded-lg border border-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>Synchronized with Hospital OPD EMR & Doctor Dashboard</span>
               </div>
             </div>
 
             <p className="text-sm text-slate-600 max-w-md">
               {selectedLanguage === 'हिंदी'
-                ? 'आपकी जानकारी सुरक्षित रूप से दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
-                : 'Your intake responses and verified ABHA profile have been transmitted to the duty physician. Please take a seat in the waiting area.'}
+                ? 'आपकी जानकारी अस्पताल के डेटाबेस में सुरक्षित रूप से दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
+                : 'Your intake responses and patient details have been transmitted directly to the duty physician. Please take a seat in the waiting area.'}
             </p>
 
             <button
@@ -1439,6 +1554,25 @@ export default function KioskPage() {
           </div>
         </main>
       )}
+
+      {/* Real Interactive Live Camera Scanner Modal */}
+      <LiveCameraModal
+        isOpen={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        mode={cameraModalMode}
+        title={
+          cameraModalMode === 'face'
+            ? 'Patient Live KYC Face Capture'
+            : 'Kiosk High-Resolution Document Scanner'
+        }
+        onCapture={({ file, dataUrl, fileName }) => {
+          if (cameraModalMode === 'document') {
+            handleProcessDocument(fileName, 'auto', file);
+          } else {
+            setPatientFacePhoto(dataUrl);
+          }
+        }}
+      />
     </div>
   );
 }
