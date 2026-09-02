@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { 
   FlaskConical, Pill, Trash2, Edit2, Check, Plus, AlertCircle, 
   Sparkles, FileText, CheckCircle2, RotateCcw, ShieldCheck, 

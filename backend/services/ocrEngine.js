@@ -519,14 +519,14 @@ function parseClinicalEntitiesFromText(rawText, fileName = '', complaintId = 'au
   // --------------------------------------------------------------------------
   // D. PRESCRIPTION MEDICATIONS & POSOLOGY SCANNER
   // --------------------------------------------------------------------------
-  const medRegex = /(?:tab\.?|cap\.?|syp\.?|inj\.?|tablet|capsule|syrup|injection|inhaler|drops|gel|ointment|rx)\s*[:=-]?\s*([A-Za-z0-9+-\s]+?)(?:\s+([0-9]{1,4}\s*(?:mg|mcg|gm|ml|iu|puffs?|%)))?(?:\s*[-:]\s*(.+))?$/i;
+  const medRegex = /(?:tab\.?|cap\.?|syp\.?|inj\.?|tablet|capsule|syrup|injection|inhaler|drops|gel|ointment)\s*[:=-]?\s*([A-Za-z0-9+-]+)(?:\s+([0-9]{1,4}\s*(?:mg|mcg|gm|ml|iu|puffs?|%)))?/i;
 
   for (const line of lines) {
     const medMatch = line.match(medRegex);
     if (medMatch) {
       const drugName = medMatch[1].replace(/^[-•*0-9.]+\s*/, '').trim();
       const dose = medMatch[2] ? medMatch[2].trim() : 'As directed';
-      const instructions = medMatch[3] ? medMatch[3].trim() : 'Take as prescribed';
+      const instructions = 'Take as prescribed';
 
       let freq = 'once or twice daily';
       if (/1-0-1|bd|twice/i.test(line)) freq = 'twice daily (BD)';

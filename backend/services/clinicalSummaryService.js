@@ -71,19 +71,40 @@ function synthesizeClinicalSectionsDeterministic(session, language = 'en') {
       : `Correlating radiology: "${doc.imagingFindings}". `;
   }
 
+  // Safe entity extraction from doc (handles both parsed arrays and JSON strings from Prisma)
+  let docDiagnoses = [];
+  let docMedications = [];
+  let docLabValues = [];
+  let docInteractions = [];
+
+  if (doc) {
+    try {
+      docDiagnoses = Array.isArray(doc.diagnoses) ? doc.diagnoses : (typeof doc.diagnoses === 'string' ? JSON.parse(doc.diagnoses || '[]') : []);
+    } catch (e) {}
+    try {
+      docMedications = Array.isArray(doc.medications) ? doc.medications : (typeof doc.medications === 'string' ? JSON.parse(doc.medications || '[]') : []);
+    } catch (e) {}
+    try {
+      docLabValues = Array.isArray(doc.labValues) ? doc.labValues : (typeof doc.labValues === 'string' ? JSON.parse(doc.labValues || '[]') : []);
+    } catch (e) {}
+    try {
+      docInteractions = Array.isArray(doc.drugInteractions) ? doc.drugInteractions : (typeof doc.drugInteractions === 'string' ? JSON.parse(doc.drugInteractions || '[]') : []);
+    } catch (e) {}
+  }
+
   // 3. PAST MEDICAL & SURGICAL HISTORY (PMHx / PSHx)
   let pmhxContent = isHi ? 'पूर्व चिकित्सीय इतिहास: ' : 'Past Medical History: ';
-  if (doc?.diagnoses && doc.diagnoses.length > 0) {
-    pmhxContent += (isHi ? 'अपलोड किए गए पूर्व रिकॉर्ड से:\n• ' : 'Extracted from uploaded health records:\n• ') + doc.diagnoses.join('\n• ');
+  if (docDiagnoses.length > 0) {
+    pmhxContent += (isHi ? 'अपलोड किए गए पूर्व रिकॉर्ड से:\n• ' : 'Extracted from uploaded health records:\n• ') + docDiagnoses.join('\n• ');
   } else {
     pmhxContent += isHi ? 'कोई पूर्व सर्जिकल/चिकित्सीय रिकॉर्ड अपलोड नहीं।' : 'No documented previous surgical or chronic hospital records uploaded.';
   }
 
   // 4. CURRENT MEDICATIONS, ALLERGIES & DRUG INTERACTIONS
   let medsContent = '';
-  if (doc?.medications && doc.medications.length > 0) {
+  if (docMedications.length > 0) {
     medsContent += (isHi ? 'सक्रिय दवाइयां (ओसीआर द्वारा सत्यापित):\n' : 'Active Prescriptions (Extracted via OCR):\n');
-    medsContent += doc.medications.map(m => `• ${m.name} ${m.dose || ''} — ${m.frequency || 'as directed'}`).join('\n');
+    medsContent += docMedications.map(m => `• ${m.name} ${m.dose || ''} — ${m.frequency || 'as directed'}`).join('\n');
   } else {
     medsContent += isHi ? 'वर्तमान में कोई नियमित दवा दर्ज नहीं।' : 'No active prescription medications documented.';
   }
@@ -92,10 +113,10 @@ function synthesizeClinicalSectionsDeterministic(session, language = 'en') {
     ? '\n\nड्रग एलर्जी: ज्ञात कोई दवा एलर्जी नहीं (NKDA)' 
     : '\n\nAllergies: No Known Drug Allergies (NKDA) reported in intake flow.';
 
-  if (doc?.drugInteractions && doc.drugInteractions.length > 0) {
+  if (docInteractions.length > 0) {
     medsContent += isHi
-      ? `\n\n⚠️ संभावित दवा परस्पर-क्रिया (ड्रग इंटरैक्शन):\n` + doc.drugInteractions.map(d => `• [${d.severity}] ${d.drug1} + ${d.drug2}: ${d.title}`).join('\n')
-      : `\n\n⚠️ Flagged Drug-Drug Interactions:\n` + doc.drugInteractions.map(d => `• [${d.severity}] ${d.drug1} + ${d.drug2}: ${d.title} (${d.clinicalRisk})`).join('\n');
+      ? `\n\n⚠️ संभावित दवा परस्पर-क्रिया (ड्रग इंटरैक्शन):\n` + docInteractions.map(d => `• [${d.severity}] ${d.drug1} + ${d.drug2}: ${d.title}`).join('\n')
+      : `\n\n⚠️ Flagged Drug-Drug Interactions:\n` + docInteractions.map(d => `• [${d.severity}] ${d.drug1} + ${d.drug2}: ${d.title} (${d.clinicalRisk})`).join('\n');
   }
 
   // 5. FAMILY & SOCIAL HISTORY (FHx / SHx)
@@ -124,8 +145,8 @@ function synthesizeClinicalSectionsDeterministic(session, language = 'en') {
 
   // 8. PRIOR INVESTIGATIONS SUMMARY (Labs + Imaging)
   let invContent = isHi ? 'पूर्व जांच रिपोर्ट:\n' : 'Prior Investigations Summary:\n';
-  if (doc?.labValues && doc.labValues.length > 0) {
-    invContent += doc.labValues.map(l => `• ${l.test}: ${l.value} ${l.unit} [${l.flag || 'NORMAL'}] (Ref: ${l.referenceRange || 'Standard'})`).join('\n');
+  if (docLabValues.length > 0) {
+    invContent += docLabValues.map(l => `• ${l.test}: ${l.value} ${l.unit} [${l.flag || 'NORMAL'}] (Ref: ${l.referenceRange || 'Standard'})`).join('\n');
   } else {
     invContent += isHi ? 'कोई पूर्व प्रयोगशाला रिपोर्ट अपलोड नहीं।' : 'No laboratory diagnostic reports attached.';
   }

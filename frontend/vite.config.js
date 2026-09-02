@@ -8,5 +8,16 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     host: true
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.js',
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: true
+      }
+    }
   }
 });
