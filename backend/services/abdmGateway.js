@@ -51,8 +51,47 @@ async function searchPatientProfile({ identifier }) {
   return null;
 }
 
+// Live ABDM Sandbox Token Cache
+let cachedAccessToken = null;
+let tokenExpiresAt = 0;
+
 /**
- * 2. Initiate Real ABDM OTP Authentication (Dispatches SMS to user's real mobile phone)
+ * Get OAuth Bearer Token from real ABDM Sandbox Gateway (dev.abdm.gov.in)
+ */
+async function getAbdmSessionToken() {
+  if (!process.env.ABDM_CLIENT_ID || !process.env.ABDM_CLIENT_SECRET) {
+    return null;
+  }
+  if (cachedAccessToken && Date.now() < tokenExpiresAt - 60000) {
+    return cachedAccessToken;
+  }
+
+  const baseUrl = process.env.ABDM_BASE_URL || 'https://dev.abdm.gov.in/gateway/v0.5';
+  try {
+    const res = await fetch(`${baseUrl}/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: process.env.ABDM_CLIENT_ID.trim(),
+        clientSecret: process.env.ABDM_CLIENT_SECRET.trim()
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      cachedAccessToken = data.accessToken;
+      tokenExpiresAt = Date.now() + (data.expiresIn || 1800) * 1000;
+      console.log('🏛️ [ABDM Gateway] Authenticated with live ABDM Sandbox Gateway (dev.abdm.gov.in).');
+      return cachedAccessToken;
+    }
+  } catch (e) {
+    console.warn('⚠️ [ABDM Gateway] Live Sandbox auth attempt failed:', e.message);
+  }
+  return null;
+}
+
+/**
+ * 2. Initiate Real ABDM OTP Authentication
+ * Attempts live ABDM Gateway if configured, otherwise uses built-in Sandbox Simulator.
  */
 async function initiateAbdmOtp({ identifier, authMode = 'MOBILE_OTP' }) {
   const cleanInput = String(identifier || '').trim();
@@ -62,7 +101,44 @@ async function initiateAbdmOtp({ identifier, authMode = 'MOBILE_OTP' }) {
     throw new Error('Please enter a valid 10-digit Mobile Number, 14-digit ABHA Number, or 12-digit Aadhaar Number.');
   }
 
-  const txnId = 'txn_' + Date.now() + '_' + Math.floor(1000 + Math.random() * 9000);
+  const isLiveConfigured = !!(process.env.ABDM_CLIENT_ID && process.env.ABDM_CLIENT_SECRET);
+  let liveTxnId = null;
+
+  // Try live ABDM Sandbox if credentials exist
+  if (isLiveConfigured) {
+    try {
+      const token = await getAbdmSessionToken();
+      if (token) {
+        const baseUrl = process.env.ABDM_BASE_URL || 'https://dev.abdm.gov.in/gateway/v0.5';
+        const endpoint = authMode === 'AADHAAR_OTP' 
+          ? `${baseUrl}/v2/registration/aadhaar/generateOtp` 
+          : `${baseUrl}/v0.5/users/auth/init`;
+        
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'X-CM-ID': 'sbx'
+          },
+          body: JSON.stringify({
+            id: cleanInput,
+            purpose: 'KYC_AND_LINK',
+            authMode
+          })
+        });
+        if (res.ok) {
+          const liveData = await res.json();
+          liveTxnId = liveData.txnId || liveData.transactionId;
+          console.log(`🏛️ [ABDM LIVE SANDBOX] Initiated live auth with dev.abdm.gov.in | TxnId: ${liveTxnId}`);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ [ABDM Gateway] Live gateway failed, falling back to Sandbox Simulator:', err.message);
+    }
+  }
+
+  const txnId = liveTxnId || ('txn_' + Date.now() + '_' + Math.floor(1000 + Math.random() * 9000));
   
   // Generate real 6-digit cryptographic OTP code
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -72,24 +148,29 @@ async function initiateAbdmOtp({ identifier, authMode = 'MOBILE_OTP' }) {
     digitsOnly: digitsOnly.slice(-10),
     authMode,
     otp: otpCode,
+    isLive: !!liveTxnId,
     createdAt: Date.now()
   });
 
-  // Dispatch real SMS to the mobile phone via telecom gateways
+  // Dispatch SMS to user's phone (or DEMO simulator if no gateway key)
   const smsResult = await sendRealSmsOtp({
     mobile: digitsOnly.slice(-10),
     otp: otpCode,
     authMode
   });
 
-  console.log(`📱 [ABDM OTP Gateway] Sent OTP to +91 ${digitsOnly.slice(-10)} | TxnId: ${txnId}`);
+  console.log(`📱 [ABDM OTP Gateway] Sent OTP to +91 ${digitsOnly.slice(-10)} | TxnId: ${txnId} | Mode: ${isLiveConfigured ? 'LIVE_SANDBOX' : 'SANDBOX_SIMULATOR'}`);
 
-  // Return success message without displaying plain OTP on screen
   return {
     success: true,
     txnId,
-    message: `6-digit OTP has been sent via SMS to your registered mobile number +91 ${digitsOnly.slice(-10)}. Please enter the OTP received on your phone.`,
-    authMode
+    authMode,
+    gatewayMode: isLiveConfigured ? 'LIVE_SANDBOX' : 'SANDBOX_SIMULATOR',
+    isDemoOtp: smsResult.isDemoOtp,
+    demoOtpNotice: smsResult.isDemoOtp ? 'Demo Mode Active: Enter OTP 123456 or check server terminal' : null,
+    message: smsResult.isDemoOtp
+      ? `Demo OTP Mode Active: Enter test code 123456 (or generated OTP: ${otpCode})`
+      : `6-digit OTP has been sent via SMS to your registered mobile number +91 ${digitsOnly.slice(-10)}.`
   };
 }
 
@@ -326,11 +407,26 @@ async function registerRealAbhaProfile({ name, age, gender, mobile, address, abh
   };
 }
 
+/**
+ * 7. Get ABDM Gateway Status & Configuration
+ */
+function getAbdmGatewayStatus() {
+  const isConfigured = !!(process.env.ABDM_CLIENT_ID && process.env.ABDM_CLIENT_SECRET);
+  return {
+    mode: isConfigured ? 'LIVE_SANDBOX' : 'SANDBOX_SIMULATOR',
+    gatewayUrl: process.env.ABDM_BASE_URL || 'https://dev.abdm.gov.in/gateway/v0.5',
+    clientIdConfigured: !!process.env.ABDM_CLIENT_ID,
+    clientSecretConfigured: !!process.env.ABDM_CLIENT_SECRET,
+    smsGatewayConfigured: !!(process.env.FAST2SMS_API_KEY || process.env.TWO_FACTOR_API_KEY || process.env.TWILIO_ACCOUNT_SID)
+  };
+}
+
 module.exports = {
   searchPatientProfile,
   initiateAbdmOtp,
   verifyAbdmOtpAndGetProfile,
   processAbhaQrCode,
   updateRealPatientProfile,
-  registerRealAbhaProfile
+  registerRealAbhaProfile,
+  getAbdmGatewayStatus
 };

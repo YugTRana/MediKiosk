@@ -21,6 +21,14 @@ const { getAyushClarifyingQuestion } = require('./services/ayushDialogueEngine')
 const { getSpeechServiceConfig, bhashiniTranscribeAudio, bhashiniSynthesizeSpeech } = require('./services/bhashiniService');
 const { validateFhirR4Bundle } = require('./services/fhirValidationService');
 const { generateSynthesizedDossier } = require('./services/clinicalSummaryService');
+const { 
+  searchPatientProfile, 
+  initiateAbdmOtp, 
+  verifyAbdmOtpAndGetProfile, 
+  processAbhaQrCode, 
+  getAbdmGatewayStatus 
+} = require('./services/abdmGateway');
+const { purgeExpiredSessionData, startScheduledRetentionJob } = require('./services/dataRetentionJob');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -743,6 +751,18 @@ app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
         redFlagsTriggered: JSON.stringify(redFlagsTriggered || []),
         ayushAssessment: validateAndNormalizeAyushAssessment(ayushAssessment),
         patientId: patientRecord ? patientRecord.id : null,
+        consentRecord: {
+          create: {
+            patientId: patientRecord ? patientRecord.id : null,
+            purpose: 'OUTPATIENT_CONSULTATION',
+            allowDataCapture: req.body.granularConsent?.allowDataCapture !== false,
+            allowHisSharing: req.body.granularConsent?.allowHisSharing !== false,
+            allowAbdmLinking: req.body.granularConsent?.allowAbdmLinking !== false,
+            status: 'GRANTED',
+            grantedAt: new Date(),
+            ipAddress: req.ip
+          }
+        },
         digitizedDocument: digitizedDocument ? {
           create: {
             fileName: digitizedDocument.fileName || 'scanned_report.pdf',
@@ -762,7 +782,8 @@ app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
       },
       include: {
         patient: true,
-        digitizedDocument: true
+        digitizedDocument: true,
+        consentRecord: true
       }
     });
 
@@ -1009,8 +1030,131 @@ app.patch('/api/sessions/:id/status', requireRole(['DOCTOR', 'ADMIN']), async (r
   }
 });
 
+// ==============================================================================
+// 9. ABDM NATIONAL HEALTH AUTHORITY (ABHA VERIFICATION & OTP AUTH)
+// ==============================================================================
+app.get('/api/abdm/status', (req, res) => {
+  try {
+    const status = getAbdmGatewayStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/abdm/verify', async (req, res) => {
+  const { abhaId, mobile } = req.body;
+  try {
+    const profile = await searchPatientProfile({ identifier: abhaId || mobile });
+    if (profile) {
+      return res.json({ success: true, patientProfile: profile });
+    }
+    res.status(404).json({ success: false, message: 'No registered ABHA found for this identifier.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/abdm/init-otp', async (req, res) => {
+  const { identifier, authMode } = req.body;
+  try {
+    const result = await initiateAbdmOtp({ identifier, authMode });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/abdm/confirm-otp', async (req, res) => {
+  const { txnId, otp, patientData } = req.body;
+  try {
+    const profile = await verifyAbdmOtpAndGetProfile({ txnId, otp, patientData });
+    res.json({ success: true, patientProfile: profile });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/abdm/qr-scan', async (req, res) => {
+  const { qrText } = req.body;
+  try {
+    const profile = await processAbhaQrCode({ qrText });
+    res.json({ success: true, patientProfile: profile });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// ==============================================================================
+// 10. GRANULAR DPDP ACT CONSENT REVOCATION & AUDIT
+// ==============================================================================
+app.post('/api/consent/revoke/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const consent = await prisma.consentRecord.update({
+      where: { sessionId },
+      data: {
+        status: 'REVOKED',
+        revokedAt: new Date()
+      }
+    }).catch(() => null);
+
+    // Immediately purge sensitive raw data per DPDP Act right to erasure
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        status: 'CONSENT_REVOKED',
+        answers: '[]',
+        ayushAssessment: null,
+        redFlagsTriggered: '[]'
+      }
+    });
+
+    await prisma.digitizedDocument.deleteMany({
+      where: { sessionId }
+    });
+
+    console.log(`🛡️ [DPDP CONSENT REVOKED] Session ${sessionId} data erased from database.`);
+
+    res.json({
+      success: true,
+      message: 'Consent successfully revoked and session raw personal health data purged per DPDP Act.',
+      consent
+    });
+  } catch (err) {
+    console.error('❌ [Consent Revoke Error]:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/consent/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const consent = await prisma.consentRecord.findUnique({
+      where: { sessionId }
+    });
+    res.json({ success: true, consent });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==============================================================================
+// 11. DATA RETENTION MANUAL TRIGGER (ADMIN)
+// ==============================================================================
+app.post('/api/admin/purge-expired', requireRole(['ADMIN']), async (req, res) => {
+  const { retentionHours } = req.body;
+  try {
+    const report = await purgeExpiredSessionData(retentionHours ? parseInt(retentionHours, 10) : undefined);
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Start Server
 app.listen(PORT, () => {
   console.log(`[MediKiosk Backend] Server running on http://localhost:${PORT}`);
-  console.log(`[MediKiosk Backend] Real OCR engine & Prisma ORM database initialized.`);
+  console.log(`[MediKiosk Backend] Real OCR engine, ABDM Gateway & Prisma ORM database initialized.`);
+  startScheduledRetentionJob();
 });

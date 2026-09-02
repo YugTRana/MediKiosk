@@ -50,6 +50,7 @@ model Session {
   digitizedDocument      DigitizedDocument?
   redFlags               RedFlagAlert[]
   hisPush                HisPushedRecord?
+  consentRecord          ConsentRecord?
 }
 
 model DigitizedDocument {
@@ -97,4 +98,20 @@ model HisPushedRecord {
   status        String   @default("SYNCED")
   hospitalCode  String   @default("HOSP-MAHA-001")
   pushedAt      DateTime @default(now())
+}
+
+model ConsentRecord {
+  id                 String    @id @default(cuid())
+  sessionId          String    @unique
+  session            Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  patientId          String?
+  purpose            String    @default("OUTPATIENT_CONSULTATION")
+  allowDataCapture   Boolean   @default(true)
+  allowHisSharing    Boolean   @default(true)
+  allowAbdmLinking   Boolean   @default(true)
+  status             String    @default("GRANTED") // GRANTED | REVOKED | EXPIRED
+  grantedAt          DateTime  @default(now())
+  revokedAt          DateTime?
+  ipAddress          String?
+  userAgent          String?
 }

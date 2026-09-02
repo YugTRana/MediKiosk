@@ -65,15 +65,21 @@ export default function AdminPanel() {
   const [testAsrTranscript, setTestAsrTranscript] = useState('');
   const testAsrRecRef = useRef(null);
 
+  // ABDM Gateway & DPDP Retention State (Phase 8)
+  const [abdmStatus, setAbdmStatus] = useState(null);
+  const [isPurgingRetention, setIsPurgingRetention] = useState(false);
+  const [retentionPurgeReport, setRetentionPurgeReport] = useState(null);
+
   // Check Backend Health & Live Metrics
   const fetchMetricsAndHealth = async () => {
     setIsLoadingMetrics(true);
     setLoadingHealth(true);
     setHealthError(null);
     try {
-      const [healthRes, metricsRes] = await Promise.all([
+      const [healthRes, metricsRes, abdmRes] = await Promise.all([
         fetch('http://localhost:3000/api/health'),
-        fetch('http://localhost:3000/api/admin/metrics', { headers: getAuthHeaders() })
+        fetch('http://localhost:3000/api/admin/metrics', { headers: getAuthHeaders() }),
+        fetch('http://localhost:3000/api/abdm/status')
       ]);
 
       if (healthRes.ok) {
@@ -83,6 +89,10 @@ export default function AdminPanel() {
       if (metricsRes.ok) {
         const mData = await metricsRes.json();
         if (mData.metrics) setMetrics(mData.metrics);
+      }
+      if (abdmRes.ok) {
+        const abdmData = await abdmRes.json();
+        setAbdmStatus(abdmData);
       }
     } catch (err) {
       setHealthError(err.message || 'Failed to connect to backend at http://localhost:3000');
@@ -127,6 +137,29 @@ export default function AdminPanel() {
       alert(`Reset error: ${err.message}`);
     } finally {
       setIsResettingDemo(false);
+    }
+  };
+
+  // Trigger Manual DPDP Retention Purge (Phase 8)
+  const handleTriggerRetentionPurge = async () => {
+    setIsPurgingRetention(true);
+    setRetentionPurgeReport(null);
+    try {
+      const res = await fetch('http://localhost:3000/api/admin/purge-expired', {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ retentionHours: 0 }) // Purge all completed sessions for immediate test
+      });
+      const data = await res.json();
+      setRetentionPurgeReport(data);
+      setStatusMessage(`DPDP Data Retention Job Executed: Purged ${data.purgedCount || 0} expired session records.`);
+    } catch (err) {
+      console.error('Failed to trigger retention purge:', err);
+    } finally {
+      setIsPurgingRetention(false);
     }
   };
 
@@ -554,6 +587,100 @@ export default function AdminPanel() {
           </div>
         </div>
 
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 2B. ABDM GATEWAY & DPDP CONSENT FRAMEWORK STATUS (MODULE D - PHASE 8)    */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-100 text-blue-800 rounded-2xl">
+              <ShieldCheck className="w-6 h-6 text-blue-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-black text-slate-900">ABDM National Health Authority & DPDP Consent Layer</h3>
+                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                  abdmStatus?.mode === 'LIVE_SANDBOX'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                }`}>
+                  {abdmStatus?.mode === 'LIVE_SANDBOX' ? '● LIVE_SANDBOX (dev.abdm.gov.in)' : '● SANDBOX_SIMULATOR (Local Fallback)'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                ABHA ID verification, live Aadhaar/Mobile OTP authentication, and revocable DPDP Act 2023 compliance
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleTriggerRetentionPurge}
+            disabled={isPurgingRetention}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+            title="Execute automated DPDP session data purge job"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isPurgingRetention ? 'animate-spin' : ''}`} />
+            {isPurgingRetention ? 'Purging Raw Data...' : '🧹 Run DPDP Retention Purge'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Gateway Mode</span>
+            <span className="text-xs font-extrabold text-slate-800 font-mono mt-0.5 block">
+              {abdmStatus?.mode || 'SANDBOX_SIMULATOR'}
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              {abdmStatus?.clientIdConfigured ? 'ABDM_CLIENT_ID Linked' : 'Using Local SQLite Sandbox'}
+            </span>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Telecom SMS OTP Gateway</span>
+            <span className="text-xs font-extrabold text-slate-800 font-mono mt-0.5 block">
+              {abdmStatus?.smsGatewayConfigured ? 'Fast2SMS / 2Factor / Twilio' : 'DEMO OTP: 123456'}
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              {abdmStatus?.smsGatewayConfigured ? 'Live SMS Dispatch Active' : 'Fallback Code 123456 active'}
+            </span>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">DPDP Act Consent</span>
+            <span className="text-xs font-extrabold text-emerald-700 font-mono mt-0.5 block">
+              Granular & Revocable
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              Triage + HIS + ABHA linking toggles
+            </span>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Data Retention Policy</span>
+            <span className="text-xs font-extrabold text-blue-700 font-mono mt-0.5 block">
+              24h Auto-Purge Post-HIS
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              Raw voice transcripts erased
+            </span>
+          </div>
+        </div>
+
+        {retentionPurgeReport && (
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-950 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-bold">
+                Retention Purge Executed: {retentionPurgeReport.purgedCount || 0} session raw records cleared per DPDP Act retention cutoff.
+              </span>
+            </div>
+            <button onClick={() => setRetentionPurgeReport(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer font-bold">
+              &times;
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ========================================================================= */}

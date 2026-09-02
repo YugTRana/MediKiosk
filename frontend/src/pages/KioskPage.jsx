@@ -34,13 +34,20 @@ const COMPLAINT_ICONS = {
 };
 
 export default function KioskPage() {
-  // Steps: 'patient_auth' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'summary_readback' | 'submitted'
+  // Steps: 'patient_auth' | 'dpdp_consent' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'summary_readback' | 'submitted'
   const [step, setStep] = useState('patient_auth');
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [pendingSubmissionData, setPendingSubmissionData] = useState(null);
   const [patientReadBackText, setPatientReadBackText] = useState('');
   const [isPlayingReadBack, setIsPlayingReadBack] = useState(false);
+
+  // Granular DPDP Consent Toggles (Module D - Phase 8)
+  const [consentToggles, setConsentToggles] = useState({
+    allowDataCapture: true,
+    allowHisSharing: true,
+    allowAbdmLinking: true
+  });
 
   // Patient Auth State
   const [authTab, setAuthTab] = useState('login'); // 'login' | 'signup'
@@ -240,7 +247,19 @@ export default function KioskPage() {
     }
   };
 
-  const handleProceedToComplaints = () => {
+  // Audio-Guided DPDP Consent Explanation (Phase 8)
+  const handleProceedToConsent = () => {
+    cancelSpeech();
+    setStep('dpdp_consent');
+    const consentSpeech = (selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+      ? 'डिजिटल व्यक्तिगत डेटा संरक्षण अधिनियम 2023 के तहत, आपकी सहमति से ही अस्पताल कियोस्क पर आपके लक्षण व स्वास्थ्य रिकॉर्ड दर्ज किए जाएंगे। यह जानकारी केवल आपके डॉक्टर के परामर्श के लिए सुरक्षित रूप से साझा की जाएगी। आप कभी भी इसे निरस्त कर सकते हैं।'
+      : 'Under the Digital Personal Data Protection Act 2023, your symptoms and clinical records are captured only with your explicit consent. This data is securely shared with your consulting physician and optional ABHA health locker. You retain the full right to revoke this consent at any time.';
+    if (ttsEnabled) {
+      narrate(consentSpeech);
+    }
+  };
+
+  const handleConsentAccepted = () => {
     cancelSpeech();
     setStep('complaint_selection');
     narrate(
@@ -671,6 +690,7 @@ export default function KioskPage() {
       },
       consentStatus: 'GRANTED',
       consentTimestamp: new Date().toISOString(),
+      granularConsent: consentToggles,
       answers: finalAnswers,
       redFlagsTriggered: finalRedFlags || [],
       digitizedDocument: extractedDocData || null,
@@ -1210,10 +1230,10 @@ export default function KioskPage() {
 
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
-                    onClick={handleProceedToComplaints}
+                    onClick={handleProceedToConsent}
                     className="flex-1 py-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-base rounded-2xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
-                    <span>{selectedLanguage === 'हिंदी' ? 'लक्षण चयन की ओर बढ़ें' : 'Proceed to Chief Complaint Selection'}</span>
+                    <span>{selectedLanguage === 'हिंदी' ? 'सहमति व लक्षण चयन की ओर बढ़ें' : 'Proceed to Consent & Consultation'}</span>
                     <ArrowRight className="w-5 h-5 text-amber-300" />
                   </button>
 
@@ -1226,6 +1246,155 @@ export default function KioskPage() {
                 </div>
               </div>
             )}
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 1B. AUDIO-GUIDED GRANULAR DPDP ACT CONSENT AUTHORIZATION SCREEN          */}
+      {/* ========================================================================= */}
+      {step === 'dpdp_consent' && (
+        <main className="max-w-2xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 my-auto animate-fadeIn">
+          <div className="bg-white border-2 border-emerald-300 rounded-3xl p-8 shadow-xl w-full flex flex-col gap-6">
+            <div className="flex items-center gap-3 border-b border-emerald-100 pb-4">
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center shadow-inner shrink-0">
+                <ShieldCheck className="w-8 h-8 text-emerald-700" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                  DPDP Act 2023 & ABDM Compliance
+                </span>
+                <h2 className="text-xl font-black text-slate-900 mt-1">
+                  {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                    ? 'रोगी सहमति व डेटा सुरक्षा अधिकार'
+                    : 'Patient Consent & Data Protection Authorization'}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                    ? 'आपकी सहमति के बिना कोई भी स्वास्थ्य डेटा किसी अन्य पक्ष को नहीं दिया जाएगा।'
+                    : 'Your clinical data is protected and never shared without explicit consent.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Audio Explanation Strip */}
+            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Volume2 className="w-5 h-5 text-emerald-700 animate-pulse shrink-0" />
+                <span className="text-xs font-semibold text-emerald-950">
+                  {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                    ? 'ऑडियो द्वारा सहमति विवरण सुनें'
+                    : 'Audio-guided consent narration available'}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  cancelSpeech();
+                  const txt = (selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                    ? 'डिजिटल व्यक्तिगत डेटा संरक्षण अधिनियम 2023 के तहत, आपकी सहमति से ही अस्पताल कियोस्क पर आपके लक्षण व स्वास्थ्य रिकॉर्ड दर्ज किए जाएंगे। यह जानकारी केवल आपके डॉक्टर के परामर्श के लिए सुरक्षित रूप से साझा की जाएगी। आप कभी भी इसे निरस्त कर सकते हैं।'
+                    : 'Under the Digital Personal Data Protection Act 2023, your symptoms and clinical records are captured only with your explicit consent. This data is securely shared with your consulting physician and optional ABHA health locker. You retain the full right to revoke this consent at any time.';
+                  narrate(txt);
+                }}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
+              >
+                <Volume2 className="w-3.5 h-3.5" /> Replay Audio
+              </button>
+            </div>
+
+            {/* Granular Consent Checkbox Toggles */}
+            <div className="space-y-3">
+              <label className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl cursor-pointer hover:bg-emerald-50/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={consentToggles.allowDataCapture}
+                  onChange={(e) => setConsentToggles({ ...consentToggles, allowDataCapture: e.target.checked })}
+                  className="w-5 h-5 mt-0.5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                />
+                <div className="flex-1">
+                  <strong className="text-xs font-black text-slate-900 block">
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? '1. ओपीडी ट्रायज हेतु लक्षण व स्वास्थ्य डेटा संग्रह (आवश्यक)'
+                      : '1. Symptom & Clinical Data Intake for OPD Triage (Required)'}
+                  </strong>
+                  <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? 'डॉक्टर को पूर्व-मूल्यांकन नोट तैयार करने के लिए आपके उत्तर व दस्तावेज प्रोसेस किए जाएंगे।'
+                      : 'Allows capturing your responses and digitized prescriptions to prepare the physician summary.'}
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl cursor-pointer hover:bg-emerald-50/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={consentToggles.allowHisSharing}
+                  onChange={(e) => setConsentToggles({ ...consentToggles, allowHisSharing: e.target.checked })}
+                  className="w-5 h-5 mt-0.5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                />
+                <div className="flex-1">
+                  <strong className="text-xs font-black text-slate-900 block">
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? '2. अस्पताल ईएमआर / डॉक्टर डैशबोर्ड के साथ सुरक्षित साझाकरण (अनुशंसित)'
+                      : '2. Secure Transmission to Hospital EMR & Doctor Dashboard (Recommended)'}
+                  </strong>
+                  <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? 'परामर्श कक्ष में उपस्थित डॉक्टर के कंप्यूटर पर यह नैदानिक सारांश स्वतः प्रेषित होगा।'
+                      : 'Enables your treating doctor in Room 104 to review your findings before you enter the chamber.'}
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl cursor-pointer hover:bg-emerald-50/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={consentToggles.allowAbdmLinking}
+                  onChange={(e) => setConsentToggles({ ...consentToggles, allowAbdmLinking: e.target.checked })}
+                  className="w-5 h-5 mt-0.5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                />
+                <div className="flex-1">
+                  <strong className="text-xs font-black text-slate-900 block">
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? '3. आयुष्मान भारत (ABHA) हेल्थ लॉकर लिंकेज (वैकल्पिक)'
+                      : '3. National Ayushman Bharat (ABHA) Health Locker Linkage (Optional)'}
+                  </strong>
+                  <span className="text-[11px] text-slate-500 leading-tight block mt-0.5">
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? 'आपका यह परामर्श रिकॉर्ड आपके राष्ट्रीय ABHA खाते से लिंक होगा।'
+                      : 'Links this OPD consultation record to your ABDM personal health record app.'}
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            {/* Action Buttons: Agree vs Decline */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <button
+                onClick={() => {
+                  cancelSpeech();
+                  setVerifiedPatient(null);
+                  setStep('patient_auth');
+                }}
+                className="w-full sm:w-1/3 py-3.5 rounded-2xl font-black text-xs text-slate-700 bg-slate-100 hover:bg-slate-200 transition-all cursor-pointer text-center"
+              >
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? 'अस्वीकार करें व बाहर निकलें' : 'Decline & Exit'}
+              </button>
+
+              <button
+                disabled={!consentToggles.allowDataCapture}
+                onClick={handleConsentAccepted}
+                className={`w-full sm:w-2/3 py-3.5 rounded-2xl font-black text-sm text-white transition-all cursor-pointer shadow-md flex items-center justify-center gap-2 ${
+                  consentToggles.allowDataCapture 
+                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' 
+                    : 'bg-slate-300 cursor-not-allowed text-slate-500'
+                }`}
+              >
+                <CheckCircle2 className="w-5 h-5" />
+                {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                  ? 'सहमति प्रदान करें और आगे बढ़ें'
+                  : 'Grant Consent & Proceed to Consultation'}
+              </button>
+            </div>
           </div>
         </main>
       )}
