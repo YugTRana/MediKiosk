@@ -5,9 +5,9 @@
 
 const API_BASE = 'http://localhost:3000/api';
 
-// Helper to get auth headers
+// Helper to get auth headers (uses staff token first for dashboard calls)
 export function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('staffToken') || localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -15,9 +15,15 @@ export function getAuthHeaders() {
 }
 
 // Helper to handle auth token storage
-function handleAuthResponse(data) {
-  if (data.token) {
-    localStorage.setItem('token', data.token);
+function handleAuthResponse(data, isStaff = false) {
+  const token = data.token || data.staffProfile?.token || data.patientProfile?.token;
+  if (token) {
+    if (isStaff) {
+      localStorage.setItem('staffToken', token);
+      localStorage.setItem('token', token);
+    } else {
+      localStorage.setItem('patientToken', token);
+    }
   }
 }
 
@@ -44,7 +50,7 @@ export async function signupPatient({ name, mobile, password, age, gender, addre
 
   const data = await res.json();
   if (res.ok && data.patientProfile) {
-    handleAuthResponse(data);
+    handleAuthResponse(data, false);
     return data.patientProfile;
   }
   throw new Error(data.message || 'Registration failed. Please try again.');
@@ -68,7 +74,7 @@ export async function loginPatient({ mobile, password }) {
 
   const data = await res.json();
   if (res.ok && data.patientProfile) {
-    handleAuthResponse(data);
+    handleAuthResponse(data, false);
     return data.patientProfile;
   }
   throw new Error(data.message || 'Login failed. Please check your credentials.');
@@ -91,21 +97,67 @@ export async function staffLogin(username, password) {
   });
 
   const data = await res.json();
-  if (res.ok && data.staffProfile) {
-    handleAuthResponse(data);
-    // Also save role so we can do rudimentary frontend role checks
-    localStorage.setItem('staffRole', data.staffProfile.role);
+  if (res.ok && (data.staffProfile || data.token)) {
+    handleAuthResponse(data, true);
+    const profile = data.staffProfile || {};
+    if (profile.role) {
+      localStorage.setItem('staffRole', profile.role);
+    }
+    localStorage.setItem('staffUser', JSON.stringify(profile));
     return data;
   }
   throw new Error(data.message || 'Login failed. Please check your credentials.');
 }
 
 /**
- * Logout Helper
+ * Staff Session Clearing Helper (for Kiosk entrance or Staff Logout)
+ */
+export function clearStaffSession() {
+  localStorage.removeItem('staffToken');
+  localStorage.removeItem('staffRole');
+  localStorage.removeItem('staffUser');
+  localStorage.removeItem('token');
+}
+
+/**
+ * Full Logout Helper
  */
 export function logout() {
-  localStorage.removeItem('token');
-  localStorage.removeItem('staffRole');
+  clearStaffSession();
+  localStorage.removeItem('patientToken');
+}
+
+/**
+ * Helper to retrieve stored staff user object
+ */
+export function getSavedStaffUser() {
+  const str = localStorage.getItem('staffUser');
+  if (!str) return null;
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Fetch fresh Staff Profile from DB using staff JWT
+ */
+export async function fetchStaffProfile() {
+  const res = await fetch(`${API_BASE}/auth/staff-profile`, {
+    headers: getAuthHeaders()
+  });
+  if (res.ok) {
+    const data = await res.json();
+    if (data.staffProfile) {
+      localStorage.setItem('staffUser', JSON.stringify(data.staffProfile));
+      if (data.staffProfile.role) {
+        localStorage.setItem('staffRole', data.staffProfile.role);
+      }
+      return data.staffProfile;
+    }
+  }
+  return getSavedStaffUser();
 }
 
 /**

@@ -56,17 +56,20 @@ function GlobalNav() {
 }
 
 function ProtectedRoute({ children, allowedRoles }) {
-  const token = localStorage.getItem('token');
+  const staffToken = localStorage.getItem('staffToken') || localStorage.getItem('token');
   const role = localStorage.getItem('staffRole');
   const location = useLocation();
 
-  if (!token) {
+  if (!staffToken) {
     return <Navigate to="/staff-login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(role)) {
-    // If logged in but wrong role, send them back to kiosk or their designated dashboard
-    return <Navigate to="/kiosk" replace />;
+  if (allowedRoles && role) {
+    const normalizedRole = role.toUpperCase();
+    const normalizedAllowed = allowedRoles.map(r => r.toUpperCase());
+    if (!normalizedAllowed.includes(normalizedRole)) {
+      return <Navigate to="/staff-login" state={{ from: location }} replace />;
+    }
   }
 
   return children;

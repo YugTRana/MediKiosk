@@ -8,10 +8,11 @@ const fs = require('fs');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const { processDocumentWithOcr, extractRawTextFromBuffer, parseClinicalEntitiesFromText } = require('./services/ocrEngine');
-const { verifyPatientToken, requireRole } = require('./middleware/auth');
+const { verifyPatientToken, optionalPatientToken, requireRole } = require('./middleware/auth');
 const { 
   registerPatient, 
   loginPatient, 
+  loginStaff,
   getAllPatients, 
   updatePatientProfile, 
   deletePatientProfile 
@@ -36,7 +37,7 @@ const PORT = process.env.PORT || 3000;
 
 // Enable CORS for frontend
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: true,
   credentials: true
 }));
 
@@ -57,6 +58,17 @@ try {
     fallbackFlows = JSON.parse(fs.readFileSync(dialogueFlowsPath, 'utf8'));
   }
 } catch (e) {}
+
+// Helper function to validate and stringify AYUSH assessment object
+function validateAndNormalizeAyushAssessment(ayushData) {
+  if (!ayushData) return null;
+  try {
+    if (typeof ayushData === 'string') return ayushData;
+    return JSON.stringify(ayushData);
+  } catch (e) {
+    return null;
+  }
+}
 
 // ==============================================================================
 // 1. HEALTH CHECK & STATS
@@ -160,10 +172,39 @@ app.post('/api/auth/staff-login', async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Welcome back, ${profile.name}!`,
+      token: profile.token,
       staffProfile: profile
     });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// B3. Get Current Authenticated Staff Profile
+app.get('/api/auth/staff-profile', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+  try {
+    const staff = await prisma.staffUser.findUnique({
+      where: { id: req.user.id }
+    });
+
+    if (!staff) {
+      return res.status(404).json({ success: false, message: 'Staff member profile not found.' });
+    }
+
+    res.json({
+      success: true,
+      staffProfile: {
+        id: staff.id,
+        username: staff.username,
+        name: staff.name,
+        role: staff.role,
+        specialization: staff.specialization || 'General & Integrated Medicine',
+        qualification: staff.qualification || 'MD',
+        roomNumber: staff.roomNumber || '104'
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -686,7 +727,7 @@ app.post('/api/docai/check-interactions', (req, res) => {
 // ==============================================================================
 // 5. SUBMIT PATIENT CHECK-IN SESSION (PRISMA DB TRANSACTION)
 // ==============================================================================
-app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
+app.post('/api/session/submit', optionalPatientToken, async (req, res) => {
   const { 
     sessionId, 
     complaintId, 
@@ -713,11 +754,12 @@ app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
     if (patientDetails?.id) {
       patientRecord = await prisma.patient.findUnique({
         where: { id: patientDetails.id }
-      });
-    } else if (patientMobile) {
+      }).catch(() => null);
+    } 
+    if (!patientRecord && patientMobile && patientMobile.length === 10) {
       patientRecord = await prisma.patient.findUnique({
         where: { mobile: patientMobile }
-      });
+      }).catch(() => null);
 
       if (!patientRecord) {
         patientRecord = await prisma.patient.create({
@@ -729,8 +771,27 @@ app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
             password: 'defaultPassword123',
             address: patientDetails?.address || 'Walk-in OPD'
           }
-        });
+        }).catch(() => null);
       }
+    }
+    if (!patientRecord && req.user?.id) {
+      patientRecord = await prisma.patient.findUnique({
+        where: { id: req.user.id }
+      }).catch(() => null);
+    }
+    if (!patientRecord && (patientDetails?.name || patientDetails?.fullName)) {
+      const pName = patientDetails.name || patientDetails.fullName;
+      const dummyMobile = `9${Math.floor(100000000 + Math.random() * 900000000)}`;
+      patientRecord = await prisma.patient.create({
+        data: {
+          name: pName,
+          gender: patientDetails?.gender || 'Female',
+          age: parseInt(patientDetails?.age || '25', 10),
+          mobile: dummyMobile,
+          password: 'defaultPassword123',
+          address: patientDetails?.address || 'Walk-in OPD'
+        }
+      }).catch(() => null);
     }
 
     const sid = sessionId || `sess_${Date.now()}`;
@@ -1153,7 +1214,7 @@ app.post('/api/admin/purge-expired', requireRole(['ADMIN']), async (req, res) =>
 });
 
 // Start Server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`[MediKiosk Backend] Server running on http://localhost:${PORT}`);
   console.log(`[MediKiosk Backend] Real OCR engine, ABDM Gateway & Prisma ORM database initialized.`);
   startScheduledRetentionJob();

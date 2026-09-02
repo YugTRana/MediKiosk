@@ -20,11 +20,15 @@ export default function StaffLoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const { staffProfile } = await staffLogin(username, password);
+      const data = await staffLogin(username, password);
+      const profile = data.staffProfile || {};
+      const role = (profile.role || '').toUpperCase();
       
       // Navigate based on role if no 'from' location
-      if (from) {
+      if (from && from !== '/staff-login') {
         navigate(from, { replace: true });
+      } else if (role === 'ADMIN') {
+        navigate('/admin', { replace: true });
       } else {
         navigate('/doctor', { replace: true });
       }

@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Stethoscope, Users, CheckCircle2, AlertTriangle, RefreshCw, Clock, 
   FileText, Leaf, FlaskConical, Pill, AlertCircle, X, ChevronRight, 
   Activity, HeartPulse, Edit3, Check, ThumbsUp, ThumbsDown, Copy, 
   Sparkles, ShieldAlert, Award, FileCheck, CheckCheck, Code2, Send,
   Layers, Database, ArrowRight, ShieldCheck, UserCheck, Volume2, VolumeX,
-  BellRing, Radio, Settings, User
+  BellRing, Radio, Settings, User, Lock, LogOut
 } from 'lucide-react';
 import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js';
 import { convertSessionToFhirR4Bundle, validateFhirR4Bundle } from '../services/fhirGenerator.js';
 import { pushFhirToHospitalEmr } from '../services/abdmService.js';
 import { getLabFlagBadgeClass } from '../services/docAiService.js';
+import { clearStaffSession, getSavedStaffUser, fetchStaffProfile } from '../services/authService.js';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
 import DocumentTimeline from '../components/DocumentTimeline.jsx';
 import { Languages } from 'lucide-react';
@@ -51,8 +53,14 @@ function playHospitalChime() {
 }
 
 export default function DoctorDashboard() {
+  const navigate = useNavigate();
   const [sessionsData, setSessionsData] = useState({ sessions: [], redFlags: [] });
   const [loading, setLoading] = useState(false);
+
+  const handleLogoutStaff = () => {
+    clearStaffSession();
+    navigate('/staff-login', { replace: true });
+  };
   const [selectedSessionId, setSelectedSessionId] = useState(null);
 
   // Editable sections dictionary mapped by sessionId -> array of sections
@@ -98,8 +106,13 @@ export default function DoctorDashboard() {
     }
   };
 
+  const [doctorProfile, setDoctorProfile] = useState(() => getSavedStaffUser());
+
   useEffect(() => {
     fetchSessions();
+    fetchStaffProfile().then((profile) => {
+      if (profile) setDoctorProfile(profile);
+    });
     const interval = setInterval(fetchSessions, 4000);
     return () => clearInterval(interval);
   }, []);
@@ -340,12 +353,15 @@ export default function DoctorDashboard() {
     const token = currentSession.tokenNumber || 'K-101';
     const name = currentSession.patientDetails?.name || 'Patient';
     const lang = currentSession.language || 'English';
+    const docName = doctorProfile?.name || 'Duty Physician';
+    const roomNum = doctorProfile?.roomNumber || '104';
+    const roomLabel = `Room ${roomNum}`;
 
     setIsCallingAudio(true);
     setCallingPatientStatus({
       tokenNumber: token,
       patientName: name,
-      room: 'Room 104',
+      room: roomLabel,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
 
@@ -355,8 +371,8 @@ export default function DoctorDashboard() {
     // Step B: Announce over Voice TTS after chime
     setTimeout(() => {
       const announcementText = (lang === 'हिंदी' || lang === 'Hindi')
-        ? `कृपया ध्यान दें। टोकन नंबर ${token}, ${name}, कृपया कमरा नंबर 104 में डॉक्टर सुनीता राव के पास आएं।`
-        : `Attention please. Token number ${token}, ${name}, please proceed to Consultation Room 104 with Doctor Sunita Rao.`;
+        ? `कृपया ध्यान दें। टोकन नंबर ${token}, ${name}, कृपया कमरा नंबर ${roomNum} में ${docName} के पास आएं।`
+        : `Attention please. Token number ${token}, ${name}, please proceed to Consultation Room ${roomNum} with ${docName}.`;
 
       speakText(announcementText, lang, () => {
         setIsCallingAudio(false);
@@ -426,7 +442,18 @@ export default function DoctorDashboard() {
                 <Code2 className="w-3.5 h-3.5" /> FHIR R4 Connected
               </span>
             </div>
-            <p className="text-slate-400 text-xs font-medium">Dr. Sunita Rao (MD, General & Integrated Medicine) • Consultation Room 104</p>
+            <p className="text-slate-400 text-xs font-medium">
+              {doctorProfile ? (
+                <>
+                  <span className="text-slate-200 font-semibold">{doctorProfile.name}</span>
+                  {doctorProfile.qualification ? ` (${doctorProfile.qualification}${doctorProfile.specialization ? `, ${doctorProfile.specialization}` : ''})` : doctorProfile.specialization ? ` (${doctorProfile.specialization})` : ''}
+                  {doctorProfile.roomNumber ? ` • Consultation Room ${doctorProfile.roomNumber}` : ''}
+                  {doctorProfile.username ? ` [${doctorProfile.username}]` : ''}
+                </>
+              ) : (
+                'General & Integrated Medicine OPD'
+              )}
+            </p>
           </div>
         </div>
 
@@ -454,6 +481,14 @@ export default function DoctorDashboard() {
             title="Refresh patient queue"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+
+          <button
+            onClick={handleLogoutStaff}
+            className="px-3.5 py-2 bg-red-950/60 hover:bg-red-900/80 text-red-200 border border-red-800/80 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Lock Doctor Dashboard & Logout Staff Session"
+          >
+            <Lock className="w-3.5 h-3.5 text-red-400" /> Lock / Logout
           </button>
         </div>
       </header>
@@ -660,12 +695,12 @@ export default function DoctorDashboard() {
                     <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono">
                       Mobile: +91 {currentSession.patientDetails?.mobile || '9898575254'}
                     </span>
-                    {currentSession.status === 'CALLED' && (
+                    {(currentSession.status || '').toUpperCase() === 'CALLED' && (
                       <span className="px-2.5 py-0.5 bg-blue-100 text-blue-800 text-xs font-extrabold rounded-md border border-blue-200 flex items-center gap-1 animate-pulse">
                         <Volume2 className="w-3.5 h-3.5 text-blue-700" /> Called to Room 104
                       </span>
                     )}
-                    {currentSession.status === 'COMPLETED' && (
+                    {(currentSession.status || '').toUpperCase() === 'COMPLETED' && (
                       <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-xs font-extrabold rounded-md border border-emerald-200 flex items-center gap-1">
                         <CheckCheck className="w-3.5 h-3.5 text-emerald-700" /> EMR Synced & Completed
                       </span>

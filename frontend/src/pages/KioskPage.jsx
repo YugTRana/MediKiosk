@@ -15,7 +15,8 @@ import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../s
 import { 
   loginPatient, 
   signupPatient, 
-  updateAdminPatient 
+  updateAdminPatient,
+  clearStaffSession
 } from '../services/authService.js';
 import LiveCameraModal from '../components/LiveCameraModal.jsx';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
@@ -120,8 +121,10 @@ export default function KioskPage() {
   const [submittedSession, setSubmittedSession] = useState(null);
   const [sessionId] = useState(() => `sess_${Date.now()}`);
 
-  // Fetch dialogue flows from backend on mount
+  // Fetch dialogue flows & clear staff session on mount
   useEffect(() => {
+    clearStaffSession();
+
     fetch('http://localhost:3000/api/dialogue-flows')
       .then((res) => res.json())
       .then((data) => {
@@ -680,9 +683,12 @@ export default function KioskPage() {
     }
   };
 
+  const [submissionError, setSubmissionError] = useState(null);
+
   // Session Submission
   const handleSubmitSession = async ({ finalAnswers, finalRedFlags, ayushData }) => {
     setIsSubmitting(true);
+    setSubmissionError(null);
     cancelSpeech();
 
     const payload = {
@@ -716,7 +722,7 @@ export default function KioskPage() {
     };
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('patientToken') || localStorage.getItem('token');
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -726,30 +732,23 @@ export default function KioskPage() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-      if (data.session) {
+      if (res.ok && data.session) {
         setSubmittedSession(data.session);
+        setStep('submitted');
+        narrate(
+          selectedLanguage === 'हिंदी'
+            ? 'धन्यवाद! आपकी जानकारी दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
+            : 'Thank you! Your check-in is complete. Please relax in the waiting area until your token is called.'
+        );
       } else {
-        throw new Error(data.message || 'Submission error');
+        throw new Error(data.message || 'Failed to persist session record in database');
       }
     } catch (err) {
-      console.warn('[Kiosk] Backend response issue, generating local token:', err);
-      setSubmittedSession({
-        tokenNumber: `K-${Math.floor(100 + Math.random() * 900)}`,
-        complaintTitle: payload.complaintTitle,
-        answers: payload.answers,
-        redFlagsTriggered: payload.redFlagsTriggered,
-        patientDetails: payload.patientDetails,
-        digitizedDocument: payload.digitizedDocument,
-        ayushAssessment: payload.ayushAssessment
-      });
+      console.error('[Kiosk] Backend response issue:', err);
+      setSubmissionError(err.message || 'Submission error. Record could not be saved to backend.');
+      narrate('Submission failed. Please check backend connection.');
     } finally {
       setIsSubmitting(false);
-      setStep('submitted');
-      narrate(
-        selectedLanguage === 'हिंदी'
-          ? 'धन्यवाद! आपकी जानकारी दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
-          : 'Thank you! Your check-in is complete. Please relax in the waiting area until your token is called.'
-      );
     }
   };
 
@@ -2010,6 +2009,16 @@ export default function KioskPage() {
                 "{patientReadBackText}"
               </p>
             </div>
+
+            {submissionError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-xs font-semibold w-full text-left flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="block font-bold">Submission Error</strong>
+                  <span>{submissionError}</span>
+                </div>
+              </div>
+            )}
 
             {/* Action Buttons: Confirm vs Go Back to Edit */}
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full">

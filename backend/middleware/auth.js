@@ -31,6 +31,19 @@ const verifyPatientToken = (req, res, next) => {
   }
 };
 
+const optionalPatientToken = (req, res, next) => {
+  const token = extractToken(req);
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+    } catch (err) {
+      // Ignore invalid or expired token for guest kiosk check-in
+    }
+  }
+  next();
+};
+
 const requireRole = (allowedRoles) => {
   return (req, res, next) => {
     const token = extractToken(req);
@@ -41,7 +54,9 @@ const requireRole = (allowedRoles) => {
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      if (!allowedRoles.includes(decoded.role)) {
+      const userRole = (decoded.role || '').toUpperCase();
+      const allowedUpper = allowedRoles.map(r => r.toUpperCase());
+      if (!allowedUpper.includes(userRole)) {
         return res.status(403).json({ success: false, message: 'Forbidden: Insufficient permissions' });
       }
       req.user = decoded; // { id, username, role }
@@ -54,6 +69,7 @@ const requireRole = (allowedRoles) => {
 
 module.exports = {
   verifyPatientToken,
+  optionalPatientToken,
   requireRole,
   JWT_SECRET
 };

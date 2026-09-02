@@ -144,10 +144,22 @@ function extractTextWithPdf2Json(buffer) {
         let fullText = '';
         if (pdfData && pdfData.Pages) {
           for (const page of pdfData.Pages) {
+            const safeDecode = (str) => {
+              if (!str) return '';
+              try {
+                return decodeURIComponent(str);
+              } catch (e) {
+                try {
+                  return decodeURIComponent(str.replace(/%(?![0-9A-Fa-f]{2})/g, '%25'));
+                } catch (e2) {
+                  return str;
+                }
+              }
+            };
             const texts = (page.Texts || []).map(t => ({
               x: t.x,
               y: t.y,
-              text: decodeURIComponent(t.R?.map(r => r.T).join('') || '')
+              text: safeDecode(t.R?.map(r => r.T).join('') || '')
             }));
             texts.sort((a, b) => (Math.abs(a.y - b.y) <= 0.4 ? a.x - b.x : a.y - b.y));
 

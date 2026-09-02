@@ -216,8 +216,14 @@ async function loginStaff({ username, password }) {
     throw new Error('Please enter username and password.');
   }
 
-  const staff = await prisma.staffUser.findUnique({
-    where: { username: username.trim() }
+  const cleanUsername = username.trim().toLowerCase();
+  let staff = await prisma.staffUser.findFirst({
+    where: {
+      OR: [
+        { username: cleanUsername },
+        { username: username.trim() }
+      ]
+    }
   });
 
   if (!staff) {
@@ -242,6 +248,9 @@ async function loginStaff({ username, password }) {
     username: staff.username,
     name: staff.name,
     role: staff.role,
+    specialization: staff.specialization || 'General & Integrated Medicine',
+    qualification: staff.qualification || 'MD',
+    roomNumber: staff.roomNumber || '104',
     token
   };
 }
