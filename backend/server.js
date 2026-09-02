@@ -17,6 +17,7 @@ const {
   deletePatientProfile 
 } = require('./services/authService');
 const { getNextQuestion } = require('./services/dialogueEngine');
+const { getAyushClarifyingQuestion } = require('./services/ayushDialogueEngine');
 const { getSpeechServiceConfig, bhashiniTranscribeAudio, bhashiniSynthesizeSpeech } = require('./services/bhashiniService');
 
 const prisma = new PrismaClient();
@@ -508,6 +509,72 @@ app.post('/api/dialogue/next-question', async (req, res) => {
 });
 
 // ==============================================================================
+// 4a2. AYUSH CLINICAL DIALOGUE (DYNAMIC CLARIFYING QUESTIONING)
+// ==============================================================================
+app.post('/api/dialogue/ayush-clarify', async (req, res) => {
+  const { freeText, complaintTitle, currentAnswers, patientMetadata } = req.body;
+  try {
+    const result = await getAyushClarifyingQuestion({
+      freeText,
+      complaintTitle,
+      currentAnswers,
+      patientMetadata
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('Error in /api/dialogue/ayush-clarify:', err);
+    res.status(500).json({ success: false, message: 'Failed to generate Ayurvedic clarifying question' });
+  }
+});
+
+/**
+ * Validates and normalizes the AYUSH Dashavidha Pariksha assessment payload.
+ * Enforces structured schema:
+ * - dominantDosha: string
+ * - prakriti, vikriti, sara, samhanana, satmya, sattva, agni, vyayamaShakti, koshtha, aharaVihara: objects
+ * - ayurvedicSummary: string
+ */
+function validateAndNormalizeAyushAssessment(input) {
+  if (!input) return null;
+
+  let assessment = input;
+  if (typeof input === 'string') {
+    try {
+      assessment = JSON.parse(input);
+    } catch (e) {
+      console.warn('[Validation] Invalid JSON string in ayushAssessment, storing basic format.');
+      return JSON.stringify({
+        dominantDosha: 'Vata-Pitta',
+        ayurvedicSummary: String(input)
+      });
+    }
+  }
+
+  if (typeof assessment !== 'object' || assessment === null) {
+    return null;
+  }
+
+  const normalized = {
+    dominantDosha: assessment.dominantDosha || 'Vata-Pitta',
+    prakriti: assessment.prakriti || { value: 'vata_pitta', labelEn: 'Vata-Pitta Constitution' },
+    vikriti: assessment.vikriti || { value: 'vata_vikriti', labelEn: 'Vata Aggravation' },
+    sara: assessment.sara || { value: 'madhyama_sara', labelEn: 'Madhyama Sara' },
+    samhanana: assessment.samhanana || { value: 'madhyama_samhanana', labelEn: 'Madhyama Samhanana' },
+    satmya: assessment.satmya || { value: 'madhyama_satmya', labelEn: 'Madhyama Satmya' },
+    sattva: assessment.sattva || { value: 'madhyama_sattva', labelEn: 'Madhyama Sattva' },
+    agni: assessment.agni || { value: 'vishamagni', labelEn: 'Vishamagni' },
+    vyayamaShakti: assessment.vyayamaShakti || { value: 'madhyama_vyayama', labelEn: 'Madhyama Vyayama Shakti' },
+    koshtha: assessment.koshtha || { value: 'madhyama', labelEn: 'Madhyama Koshtha' },
+    aharaVihara: assessment.aharaVihara || { value: 'balanced_habits', labelEn: 'Balanced Habits' },
+    vaya: assessment.vaya || { stage: 'Madhyama Vaya', labelEn: 'Adult stage (20-60 yrs)' },
+    clarifyingHistory: assessment.clarifyingHistory || null,
+    ayurvedicSummary: assessment.ayurvedicSummary || `${assessment.dominantDosha || 'Vata-Pitta'} assessment recorded.`
+  };
+
+  return JSON.stringify(normalized);
+}
+
+// ==============================================================================
 // 4b. SPEECH & VOICE AI (BHASHINI ASR & TTS GATEWAY)
 // ==============================================================================
 app.get('/api/speech/config', (req, res) => {
@@ -642,7 +709,7 @@ app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
         status,
         answers: JSON.stringify(answers || []),
         redFlagsTriggered: JSON.stringify(redFlagsTriggered || []),
-        ayushAssessment: ayushAssessment ? JSON.stringify(ayushAssessment) : null,
+        ayushAssessment: validateAndNormalizeAyushAssessment(ayushAssessment),
         patientId: patientRecord ? patientRecord.id : null,
         digitizedDocument: digitizedDocument ? {
           create: {

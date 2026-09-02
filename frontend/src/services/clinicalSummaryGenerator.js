@@ -250,27 +250,58 @@ export function compileClinicalDossier(session) {
     isEditing: false
   };
 
-  // 7. AYUSH Intake Card (if present)
+  // 7. AYUSH Intake Dossier (Dashavidha Pariksha Formulation)
   let ayushSection = null;
   if (session.ayushAssessment) {
     const ay = session.ayushAssessment;
+    const prakritiLabel = ay.prakriti?.labelEn || ay.prakriti?.labelHi || ay.dominantDosha || 'Vata-Pitta';
+    const vikritiLabel = ay.vikriti?.labelEn || ay.vikriti?.labelHi || ay.vikriti?.dosha || 'Vata Imbalance';
+    const agniLabel = ay.agni?.labelEn || ay.agni?.labelHi || ay.agni?.agniType || ay.agni || 'Vishamagni';
+    const koshthaLabel = ay.koshtha?.labelEn || ay.koshtha?.labelHi || ay.koshtha?.koshthaType || ay.koshtha || 'Madhyama';
+    const saraLabel = ay.sara?.labelEn || ay.sara?.grade || 'Madhyama Sara';
+    const samhananaLabel = ay.samhanana?.labelEn || ay.samhanana?.compactness || 'Madhyama Samhanana';
+    const sattvaLabel = ay.sattva?.labelEn || ay.sattva?.grade || 'Madhyama Sattva';
+    const satmyaLabel = ay.satmya?.labelEn || ay.satmya?.type || 'Madhyama Satmya';
+    const vyayamaLabel = ay.vyayamaShakti?.labelEn || ay.vyayamaShakti?.capacity || 'Madhyama Vyayama Shakti';
+    const lifestyleLabel = ay.aharaVihara?.labelEn || ay.aharaVihara?.pattern || ay.aharaVihara || 'Routine Diet & Sleep';
+
     const ayushText = [
-      `🌿 AYURVEDIC DOSHA PRAKRITI & DASHAVIDHA ASSESSMENT:`,
-      `• Dominant Dosha: ${ay.dominantDosha || 'Vata-Pitta'}`,
-      `• Digestive Fire (Agni): ${ay.agni || 'Vishamagni (Irregular / Variable Digestion)'}`,
-      `• Bowel Habit (Koshtha): ${ay.koshtha || 'Krura (Hard / Constipated)'}`,
-      `• Diet & Lifestyle (Ahara-Vihara): ${ay.aharaVihara || 'Irregular meal timings with dry/cold diet aggravations'}`,
-      `• Ayurvedic Intake Note: ${ay.ayurvedicSummary || 'Prakriti assessment consistent with Vata vitiation.'}`
-    ].join('\n');
+      `🌿 AYUSH DASHAVIDHA PARIKSHA CLINICAL DOSSIER:`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `[1] DOSHA PRAKRITI & VIKRITI:`,
+      `• Dominant Constitutional Frame (Prakriti): ${prakritiLabel}`,
+      `• Active Morbidity & Imbalance (Vikriti): ${vikritiLabel}`,
+      ``,
+      `[2] METABOLISM & ELIMINATION (AGNI & KOSHTHA):`,
+      `• Digestive Fire (Agni): ${agniLabel}`,
+      `• Bowel Habit & Elimination (Koshtha): ${koshthaLabel}`,
+      ``,
+      `[3] DHATU & PHYSIQUE (SARA, SAMHANANA & SATMYA):`,
+      `• Tissue Excellence & Vitality (Sara): ${saraLabel}`,
+      `• Body Compactness & Musculoskeletal Firmness (Samhanana): ${samhananaLabel}`,
+      `• Adaptational Tolerance (Satmya): ${satmyaLabel}`,
+      ``,
+      `[4] PSYCHE & STAMINA (SATTVA & VYAYAMA SHAKTI):`,
+      `• Mental Resilience & Temperament (Sattva): ${sattvaLabel}`,
+      `• Physical Endurance & Work Capacity (Vyayama Shakti): ${vyayamaLabel}`,
+      ``,
+      `[5] AHARA-VIHARA ETIOLOGY (NIDANA & HABITS):`,
+      `• Dietary Patterns & Routine: ${lifestyleLabel}`,
+      ay.clarifyingHistory ? `• Clarifying Voice/Symptom Notes: "${ay.clarifyingHistory}"` : null,
+      ``,
+      `[6] AYURVEDIC CLINICAL SUMMARY:`,
+      `• ${ay.ayurvedicSummary || `${prakritiLabel} with ${vikritiLabel}. Managed in accordance with classical Chikitsa Sutra.`}`
+    ].filter(Boolean).join('\n');
 
     ayushSection = {
       id: 'sec_ayush',
       shortCode: 'AYUSH',
-      title: 'AYUSH Ayurvedic Assessment (Dashavidha Pariksha)',
+      title: 'AYUSH Clinical Assessment (Dashavidha Pariksha)',
       content: ayushText,
       status: 'accepted',
       isEditing: false,
-      isAyush: true
+      isAyush: true,
+      rawAyushData: ay
     };
   }
 

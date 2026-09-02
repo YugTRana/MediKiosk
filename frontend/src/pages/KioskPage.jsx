@@ -85,6 +85,10 @@ export default function KioskPage() {
   // Patient Input Data for AYUSH Dashavidha Pariksha
   const [ayushQuestionIndex, setAyushQuestionIndex] = useState(0);
   const [ayushAnswers, setAyushAnswers] = useState({});
+  const [ayushClarifyingQuestion, setAyushClarifyingQuestion] = useState(null);
+  const [hasAskedAyushClarify, setHasAskedAyushClarify] = useState(false);
+  const [isAyushThinking, setIsAyushThinking] = useState(false);
+  const [ayushClarifyingHistory, setAyushClarifyingHistory] = useState('');
 
   // Voice Interaction State
   const [voiceText, setVoiceText] = useState('');
@@ -501,12 +505,41 @@ export default function KioskPage() {
     }
   };
 
-  // AYUSH Answer
-  const handleAnswerAyushQuestion = (optionObj = null, freeText = '') => {
+  // AYUSH Answer with AI Ayurvedic Clarifying Questioning
+  const handleAnswerAyushQuestion = async (optionObj = null, freeText = '') => {
     cancelSpeech();
-    if (isListening && recognitionRef.current) {
+    if (isListening && recognitionRef.current && recognitionRef.current.stop) {
       try { recognitionRef.current.stop(); } catch (e) {}
       setIsListening(false);
+      setAudioLevel(0);
+    }
+
+    // Handle answer to active AI clarifying question
+    if (ayushClarifyingQuestion) {
+      const clarifyAnswer = optionObj 
+        ? ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? optionObj.labelHi : optionObj.labelEn)
+        : freeText;
+      const combinedHistory = ayushClarifyingHistory 
+        ? `${ayushClarifyingHistory} | Follow-up: ${clarifyAnswer}` 
+        : `Clarification: ${clarifyAnswer}`;
+      setAyushClarifyingHistory(combinedHistory);
+      setAyushClarifyingQuestion(null);
+      setVoiceText('');
+
+      if (ayushQuestionIndex < AYUSH_QUESTIONS.length - 1) {
+        const nextIdx = ayushQuestionIndex + 1;
+        setAyushQuestionIndex(nextIdx);
+        speakCurrentAyushQuestion(AYUSH_QUESTIONS[nextIdx]);
+      } else {
+        const compiledAyush = compileAyushSummary(ayushAnswers);
+        compiledAyush.clarifyingHistory = combinedHistory;
+        handleSubmitSession({
+          finalAnswers: Object.values(ayushAnswers),
+          finalRedFlags: [],
+          ayushData: compiledAyush
+        });
+      }
+      return;
     }
 
     const currentAyushQ = AYUSH_QUESTIONS[ayushQuestionIndex];
@@ -523,6 +556,46 @@ export default function KioskPage() {
     const updatedAyushAnswers = { ...ayushAnswers, [currentAyushQ.id]: answerEntry };
     setAyushAnswers(updatedAyushAnswers);
 
+    // If patient described custom symptoms in free text, elicit ONE clarifying question from LLM
+    if (freeText && freeText.trim() && !hasAskedAyushClarify) {
+      setIsAyushThinking(true);
+      setVoiceText('');
+      try {
+        const res = await fetch('http://localhost:3000/api/dialogue/ayush-clarify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            freeText: freeText.trim(),
+            complaintTitle: 'Ayurvedic Intake',
+            currentAnswers: Object.values(updatedAyushAnswers),
+            patientMetadata: {
+              age: verifiedPatient?.age || 35,
+              gender: verifiedPatient?.gender || 'Unknown',
+              language: selectedLanguage
+            }
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.question) {
+            setAyushClarifyingQuestion(data.question);
+            setHasAskedAyushClarify(true);
+            setIsAyushThinking(false);
+            const qText = (selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+              ? data.question.questionHi
+              : data.question.questionEn;
+            speakText(qText, selectedLanguage);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[Kiosk] Error fetching Ayurvedic clarification:', err);
+      } finally {
+        setIsAyushThinking(false);
+      }
+    }
+
     if (ayushQuestionIndex < AYUSH_QUESTIONS.length - 1) {
       const nextIdx = ayushQuestionIndex + 1;
       setAyushQuestionIndex(nextIdx);
@@ -530,6 +603,9 @@ export default function KioskPage() {
       speakCurrentAyushQuestion(AYUSH_QUESTIONS[nextIdx]);
     } else {
       const compiledAyush = compileAyushSummary(updatedAyushAnswers);
+      if (ayushClarifyingHistory) {
+        compiledAyush.clarifyingHistory = ayushClarifyingHistory;
+      }
       handleSubmitSession({
         finalAnswers: Object.values(updatedAyushAnswers),
         finalRedFlags: [],
@@ -1547,31 +1623,56 @@ export default function KioskPage() {
               </div>
             )}
 
+            {/* AI Ayurvedic Thinking State */}
+            {isAyushThinking && (
+              <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl flex items-center gap-3 text-emerald-950 animate-pulse">
+                <Sparkles className="w-5 h-5 text-emerald-600 animate-spin shrink-0" />
+                <span className="text-xs font-bold">
+                  {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                    ? 'आयुर्वेदिक दृष्टि (दोष/अग्नि/प्रकृति) से विश्लेषण किया जा रहा है...' 
+                    : 'Analyzing symptoms within classical Ayurvedic framework...'}
+                </span>
+              </div>
+            )}
+
             <div>
-              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 inline-block mb-2">
-                {selectedLanguage === 'हिंदी' 
-                  ? AYUSH_QUESTIONS[ayushQuestionIndex].dimensionHi 
-                  : AYUSH_QUESTIONS[ayushQuestionIndex].dimensionEn}
-              </span>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 inline-block">
+                  {ayushClarifyingQuestion
+                    ? `🌿 ${ayushClarifyingQuestion.dimension || 'Ayurvedic Clarification'}`
+                    : ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                        ? AYUSH_QUESTIONS[ayushQuestionIndex].dimensionHi 
+                        : AYUSH_QUESTIONS[ayushQuestionIndex].dimensionEn)}
+                </span>
+                {ayushClarifyingQuestion && (
+                  <span className="text-[10px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-600" /> AI Vaidya Clarification
+                  </span>
+                )}
+              </div>
               <h2 className="text-xl font-extrabold text-slate-900">
-                {selectedLanguage === 'हिंदी' 
-                  ? AYUSH_QUESTIONS[ayushQuestionIndex].questionHi 
-                  : AYUSH_QUESTIONS[ayushQuestionIndex].questionEn}
+                {ayushClarifyingQuestion
+                  ? ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? ayushClarifyingQuestion.questionHi 
+                      : ayushClarifyingQuestion.questionEn)
+                  : ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi')
+                      ? AYUSH_QUESTIONS[ayushQuestionIndex].questionHi 
+                      : AYUSH_QUESTIONS[ayushQuestionIndex].questionEn)}
               </h2>
             </div>
 
             <div className="flex flex-col gap-3">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Finding (Touch):</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {AYUSH_QUESTIONS[ayushQuestionIndex].options.map((opt, i) => (
+                {(ayushClarifyingQuestion ? ayushClarifyingQuestion.options : AYUSH_QUESTIONS[ayushQuestionIndex].options).map((opt, i) => (
                   <button
                     key={i}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isAyushThinking}
                     onClick={() => handleAnswerAyushQuestion(opt, '')}
                     className={`p-4 rounded-xl text-left border-2 border-slate-200 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/50 transition-all cursor-pointer flex flex-col justify-between gap-2 group ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span className="text-sm font-bold text-slate-900 group-hover:text-emerald-950">
-                      {selectedLanguage === 'हिंदी' ? opt.labelHi : opt.labelEn}
+                      {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? opt.labelHi : opt.labelEn}
                     </span>
                     {opt.description && (
                       <span className="text-[11px] text-slate-500 font-medium group-hover:text-emerald-800">

@@ -431,21 +431,35 @@ export default function DoctorDashboard() {
                         ? isSelected
                           ? 'border-red-600 bg-red-50 text-red-950 shadow-md ring-2 ring-red-400'
                           : 'border-red-300 bg-red-50/60 hover:bg-red-50 text-red-900'
-                        : isSelected
-                          ? 'border-blue-600 bg-blue-50/70 text-slate-900 shadow-sm'
-                          : 'border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 text-slate-800'
+                        : isAyush
+                          ? isSelected
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm ring-2 ring-emerald-400'
+                            : 'border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50/80 hover:border-emerald-300 text-slate-800'
+                          : isSelected
+                            ? 'border-blue-600 bg-blue-50/70 text-slate-900 shadow-sm'
+                            : 'border-slate-200 bg-slate-50 hover:bg-white hover:border-slate-300 text-slate-800'
                     }`}
                   >
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2">
-                        <span className={`font-mono font-black text-sm px-2 py-0.5 rounded ${
-                          isRedFlag ? 'bg-red-600 text-white' : 'bg-blue-700 text-white'
+                        <span className={`font-mono font-black text-sm px-2 py-0.5 rounded flex items-center gap-1 ${
+                          isRedFlag 
+                            ? 'bg-red-600 text-white' 
+                            : isAyush 
+                              ? 'bg-emerald-700 text-white' 
+                              : 'bg-blue-700 text-white'
                         }`}>
+                          {isAyush && <Leaf className="w-3 h-3 text-emerald-200" />}
                           {sess.tokenNumber}
                         </span>
                         {isRedFlag && (
                           <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded uppercase flex items-center gap-1 animate-pulse">
                             <AlertTriangle className="w-3 h-3" /> TRIAGE ALERT
+                          </span>
+                        )}
+                        {isAyush && (
+                          <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-black px-1.5 py-0.5 rounded uppercase flex items-center gap-1">
+                            <Leaf className="w-3 h-3 text-emerald-700" /> AYUSH
                           </span>
                         )}
                       </div>
@@ -782,6 +796,38 @@ export default function DoctorDashboard() {
                       </div>
 
                       <div className="mt-3">
+                        {/* Visual Dashavidha Pariksha Matrix Badge Card for AYUSH sections */}
+                        {sec.isAyush && sec.rawAyushData && (
+                          <div className="mb-3.5 p-3.5 bg-emerald-950 text-white rounded-xl border border-emerald-800 flex flex-col gap-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                                <Leaf className="w-3 h-3" /> Classical Dashavidha Pariksha Matrix
+                              </span>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-800/80 text-emerald-200 border border-emerald-700 font-bold">
+                                Prakriti: {sec.rawAyushData.dominantDosha || 'Vata-Pitta'}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                              <div className="bg-emerald-900/60 p-2 rounded-lg border border-emerald-800">
+                                <span className="text-[9px] uppercase text-emerald-400 font-bold block">1. Vikriti (Active)</span>
+                                <span className="font-extrabold text-white text-xs">{sec.rawAyushData.vikriti?.dosha || 'Vata Imbalance'}</span>
+                              </div>
+                              <div className="bg-emerald-900/60 p-2 rounded-lg border border-emerald-800">
+                                <span className="text-[9px] uppercase text-emerald-400 font-bold block">2. Agni (Digestion)</span>
+                                <span className="font-extrabold text-white text-xs">{sec.rawAyushData.agni?.agniType || 'Vishamagni'}</span>
+                              </div>
+                              <div className="bg-emerald-900/60 p-2 rounded-lg border border-emerald-800">
+                                <span className="text-[9px] uppercase text-emerald-400 font-bold block">3. Koshtha (Bowels)</span>
+                                <span className="font-extrabold text-white text-xs">{sec.rawAyushData.koshtha?.koshthaType || 'Madhyama'}</span>
+                              </div>
+                              <div className="bg-emerald-900/60 p-2 rounded-lg border border-emerald-800">
+                                <span className="text-[9px] uppercase text-emerald-400 font-bold block">4. Sara (Essence)</span>
+                                <span className="font-extrabold text-white text-xs">{sec.rawAyushData.sara?.grade || 'Madhyama Sara'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {sec.isEditing ? (
                           <div className="flex flex-col gap-2">
                             <textarea
