@@ -5,6 +5,22 @@
 
 const API_BASE = 'http://localhost:3000/api';
 
+// Helper to get auth headers
+export function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+}
+
+// Helper to handle auth token storage
+function handleAuthResponse(data) {
+  if (data.token) {
+    localStorage.setItem('token', data.token);
+  }
+}
+
 /**
  * 1. Patient Sign Up (New Registration)
  */
@@ -28,6 +44,7 @@ export async function signupPatient({ name, mobile, password, age, gender, addre
 
   const data = await res.json();
   if (res.ok && data.patientProfile) {
+    handleAuthResponse(data);
     return data.patientProfile;
   }
   throw new Error(data.message || 'Registration failed. Please try again.');
@@ -51,16 +68,53 @@ export async function loginPatient({ mobile, password }) {
 
   const data = await res.json();
   if (res.ok && data.patientProfile) {
+    handleAuthResponse(data);
     return data.patientProfile;
   }
   throw new Error(data.message || 'Login failed. Please check your credentials.');
 }
 
 /**
+ * 2b. Staff Log In (Username + Password)
+ */
+export async function staffLogin(username, password) {
+  if (!username) throw new Error('Please enter your username.');
+  if (!password) throw new Error('Please enter your password.');
+
+  const res = await fetch(`${API_BASE}/auth/staff-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: username.trim(),
+      password: password.trim()
+    })
+  });
+
+  const data = await res.json();
+  if (res.ok && data.staffProfile) {
+    handleAuthResponse(data);
+    // Also save role so we can do rudimentary frontend role checks
+    localStorage.setItem('staffRole', data.staffProfile.role);
+    return data;
+  }
+  throw new Error(data.message || 'Login failed. Please check your credentials.');
+}
+
+/**
+ * Logout Helper
+ */
+export function logout() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('staffRole');
+}
+
+/**
  * 3. Fetch All Patients for Admin Panel Directory
  */
 export async function fetchAdminPatients() {
-  const res = await fetch(`${API_BASE}/admin/patients`);
+  const res = await fetch(`${API_BASE}/admin/patients`, {
+    headers: getAuthHeaders()
+  });
   const data = await res.json();
   if (res.ok && data.patients) {
     return data.patients;
@@ -74,7 +128,7 @@ export async function fetchAdminPatients() {
 export async function updateAdminPatient(id, updateData) {
   const res = await fetch(`${API_BASE}/admin/patients/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(updateData)
   });
 
@@ -90,7 +144,8 @@ export async function updateAdminPatient(id, updateData) {
  */
 export async function deleteAdminPatient(id) {
   const res = await fetch(`${API_BASE}/admin/patients/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders()
   });
 
   const data = await res.json();
@@ -106,7 +161,7 @@ export async function deleteAdminPatient(id) {
 export async function pushFhirToHospitalEmr({ sessionId, tokenNumber, fhirBundle }) {
   const res = await fetch(`${API_BASE}/his/push`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ sessionId, tokenNumber, fhirBundle })
   });
 

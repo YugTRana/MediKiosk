@@ -19,6 +19,15 @@ model Patient {
   sessions  Session[]
 }
 
+model StaffUser {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  role      String   @default("DOCTOR") // DOCTOR | ADMIN | NURSE
+  name      String
+  createdAt DateTime @default(now())
+}
+
 model Session {
   id                String             @id
   tokenNumber       String             @unique

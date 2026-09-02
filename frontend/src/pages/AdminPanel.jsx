@@ -6,7 +6,7 @@ import {
   RotateCcw, Sparkles, HeartPulse, Stethoscope, ArrowRight, Radio, Award
 } from 'lucide-react';
 import { extractDocumentWithDocAI } from '../services/docAiService.js';
-import { fetchAdminPatients, deleteAdminPatient, pushFhirToHospitalEmr } from '../services/authService.js';
+import { fetchAdminPatients, deleteAdminPatient, pushFhirToHospitalEmr, getAuthHeaders } from '../services/authService.js';
 import { convertSessionToFhirR4Bundle } from '../services/fhirGenerator.js';
 
 export default function AdminPanel() {
@@ -52,7 +52,7 @@ export default function AdminPanel() {
     try {
       const [healthRes, metricsRes] = await Promise.all([
         fetch('http://localhost:3000/api/health'),
-        fetch('http://localhost:3000/api/admin/metrics')
+        fetch('http://localhost:3000/api/admin/metrics', { headers: getAuthHeaders() })
       ]);
 
       if (healthRes.ok) {
@@ -92,7 +92,7 @@ export default function AdminPanel() {
 
     setIsResettingDemo(true);
     try {
-      const res = await fetch('http://localhost:3000/api/admin/reset', { method: 'POST' });
+      const res = await fetch('http://localhost:3000/api/admin/reset', { method: 'POST', headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) {
         setStatusMessage('Demo environment reset successfully! All queues and tokens are fresh.');
@@ -116,7 +116,7 @@ export default function AdminPanel() {
     try {
       const res = await fetch('http://localhost:3000/api/admin/generate-sample', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ sampleType })
       });
       const data = await res.json();

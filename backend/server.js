@@ -1,10 +1,21 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 const { processDocumentWithOcr, extractRawTextFromBuffer, parseClinicalEntitiesFromText } = require('./services/ocrEngine');
+const { verifyPatientToken, requireRole } = require('./middleware/auth');
+const { 
+  registerPatient, 
+  loginPatient, 
+  getAllPatients, 
+  updatePatientProfile, 
+  deletePatientProfile 
+} = require('./services/authService');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -133,6 +144,24 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(400).json({ success: false, message: err.message });
   }
 });
+
+// B2. Staff Login (Doctor/Admin)
+app.post('/api/auth/staff-login', async (req, res) => {
+  const { username, password } = req.body || {};
+  try {
+    const profile = await loginStaff({ username, password });
+    res.status(200).json({
+      success: true,
+      message: `Welcome back, ${profile.name}!`,
+      staffProfile: profile
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// Protect Admin routes
+app.use('/api/admin', requireRole(['ADMIN']));
 
 // C. Admin: Get All Registered Patients & Consultation Counts
 app.get('/api/admin/patients', async (req, res) => {
@@ -506,7 +535,7 @@ app.post('/api/docai/extract', upload.single('documentFile'), async (req, res) =
 // ==============================================================================
 // 5. SUBMIT PATIENT CHECK-IN SESSION (PRISMA DB TRANSACTION)
 // ==============================================================================
-app.post('/api/session/submit', async (req, res) => {
+app.post('/api/session/submit', verifyPatientToken, async (req, res) => {
   const { 
     sessionId, 
     complaintId, 
@@ -652,7 +681,7 @@ app.post('/api/session/submit', async (req, res) => {
 // ==============================================================================
 // 6. GET SESSIONS LIST FOR DOCTOR DASHBOARD & ADMIN PANEL
 // ==============================================================================
-app.get('/api/sessions', async (req, res) => {
+app.get('/api/sessions', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
   try {
     const sessions = await prisma.session.findMany({
       include: {
@@ -711,7 +740,7 @@ app.get('/api/sessions', async (req, res) => {
 // ==============================================================================
 // 7. EMR / HOSPITAL HIS FHIR PUSH
 // ==============================================================================
-app.post('/api/his/push', async (req, res) => {
+app.post('/api/his/push', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
   const { sessionId, tokenNumber, fhirBundle } = req.body || {};
   const emrRecordId = `EMR-REC-2026-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -774,7 +803,7 @@ app.post('/api/his/push', async (req, res) => {
 // ==============================================================================
 // 8. UPDATE SESSION STATUS (CALL PATIENT / COMPLETE)
 // ==============================================================================
-app.patch('/api/sessions/:id/status', async (req, res) => {
+app.patch('/api/sessions/:id/status', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {

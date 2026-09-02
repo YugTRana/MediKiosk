@@ -94,3 +94,15 @@ The frontend includes a top navigation bar allowing quick switching between the 
 - **Font Sizes**: Body text minimum 18px (`1.125rem`), Button text 24px–26px (`font-bold`).
 - **Touch Targets**: Minimum touch target height 64px to 80px with generous interactive padding.
 - **Color Contrast**: Deep navy (`#0F172A`), high-visibility blue (`#1E40AF`), emerald (`#047857`), and gold accents.
+
+---
+
+## 📝 Upgrade Changelog
+
+### Phase 1: Foundation Hardening (Auth, RBAC, Env Config, Git Hygiene)
+- **Environment Config**: Created `.env` and `.env.example` to consolidate DB URLs and JWT secrets.
+- **Git Hygiene**: Updated `.gitignore` to secure `.env` files.
+- **Prisma Schema**: Added `StaffUser` model to schema alongside existing `Patient` models.
+- **Authentication**: Implemented JWT-based authentication in `authService.js` (backend and frontend). Secured patient passwords using `bcrypt`.
+- **RBAC Middleware**: Introduced `requireRole` middleware in `auth.js` to protect `/api/admin`, `/api/sessions`, and `/api/his` routes.
+- **Staff Portal**: Added `StaffLoginPage.jsx` and updated `App.jsx` with a `ProtectedRoute` wrapper for `/doctor` and `/admin` routes.

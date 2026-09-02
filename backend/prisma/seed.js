@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
@@ -10,46 +11,34 @@ async function main() {
   // 1. Seed Verified ABHA Patients
   const patients = [
     {
-      abhaNumber: '91-8472-1029-4821',
-      abhaAddress: 'ramesh.sharma@abdm',
       name: 'Ramesh Chandra Sharma',
       gender: 'Male',
-      dob: '1958-04-12',
       age: 68,
       mobile: '9876543210',
-      address: 'House 42, Sector 9, Jaipur, Rajasthan',
-      kycStatus: 'VERIFIED_AADHAAR_BIO',
-      healthLockerLinked: true
+      password: await bcrypt.hash('password123', 10),
+      address: 'House 42, Sector 9, Jaipur, Rajasthan'
     },
     {
-      abhaNumber: '91-3829-1928-4019',
-      abhaAddress: 'sunita.devi@abdm',
       name: 'Sunita Devi',
       gender: 'Female',
-      dob: '1964-08-22',
       age: 62,
       mobile: '9845211928',
-      address: 'Plot 14, Gandhi Nagar, Bhopal, MP',
-      kycStatus: 'VERIFIED_AADHAAR_OTP',
-      healthLockerLinked: true
+      password: await bcrypt.hash('password123', 10),
+      address: 'Plot 14, Gandhi Nagar, Bhopal, MP'
     },
     {
-      abhaNumber: '91-5555-1234-8890',
-      abhaAddress: 'amit.verma@abdm',
       name: 'Amit Kumar Verma',
       gender: 'Male',
-      dob: '1992-11-04',
       age: 34,
       mobile: '9711233455',
-      address: 'Sector 62, Noida, UP',
-      kycStatus: 'VERIFIED_AADHAAR_DEMOGRAPHIC',
-      healthLockerLinked: true
+      password: await bcrypt.hash('password123', 10),
+      address: 'Sector 62, Noida, UP'
     }
   ];
 
   for (const p of patients) {
     await prisma.patient.upsert({
-      where: { abhaNumber: p.abhaNumber },
+      where: { mobile: p.mobile },
       update: p,
       create: p
     });
@@ -57,6 +46,8 @@ async function main() {
   console.log(`✅ Seeded ${patients.length} ABHA patient accounts.`);
 
   // 2. Seed Chief Complaints & Dialogue Flows from mockData/dialogueFlows.json if present
+  // (Currently models ChiefComplaint, Question, Option are missing from schema, relies on fallback)
+  /*
   const dialogueFlowsPath = path.join(__dirname, '..', 'mockData', 'dialogueFlows.json');
   if (fs.existsSync(dialogueFlowsPath)) {
     const raw = fs.readFileSync(dialogueFlowsPath, 'utf8');
@@ -125,6 +116,34 @@ async function main() {
       console.log(`✅ Seeded ${data.complaints.length} chief complaint dialogue flows.`);
     }
   }
+  */
+
+  // 3. Seed Default Staff Users (Phase 1)
+  const hashedAdminPassword = await bcrypt.hash('admin123', 10);
+  const hashedDoctorPassword = await bcrypt.hash('doctor123', 10);
+  
+  await prisma.staffUser.upsert({
+    where: { username: 'admin1' },
+    update: {},
+    create: {
+      username: 'admin1',
+      password: hashedAdminPassword,
+      role: 'ADMIN',
+      name: 'System Admin'
+    }
+  });
+
+  await prisma.staffUser.upsert({
+    where: { username: 'doctor1' },
+    update: {},
+    create: {
+      username: 'doctor1',
+      password: hashedDoctorPassword,
+      role: 'DOCTOR',
+      name: 'Dr. Asha Sharma'
+    }
+  });
+  console.log(`✅ Seeded default Staff Users (admin1, doctor1).`);
 
   console.log('🎉 [MediKiosk DB] Seeding completed successfully.');
 }

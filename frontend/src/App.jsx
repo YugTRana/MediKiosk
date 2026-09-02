@@ -1,9 +1,10 @@
 import React from 'react';
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Monitor, Stethoscope, Shield, HeartPulse } from 'lucide-react';
 import KioskPage from './pages/KioskPage.jsx';
 import DoctorDashboard from './pages/DoctorDashboard.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
+import StaffLoginPage from './pages/StaffLoginPage.jsx';
 
 function GlobalNav() {
   return (
@@ -68,6 +69,23 @@ function GlobalNav() {
   );
 }
 
+function ProtectedRoute({ children, allowedRoles }) {
+  const token = localStorage.getItem('token');
+  const role = localStorage.getItem('staffRole');
+  const location = useLocation();
+
+  if (!token) {
+    return <Navigate to="/staff-login" state={{ from: location }} replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(role)) {
+    // If logged in but wrong role, send them back to kiosk or their designated dashboard
+    return <Navigate to="/kiosk" replace />;
+  }
+
+  return children;
+}
+
 export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
@@ -77,8 +95,26 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/kiosk" replace />} />
           <Route path="/kiosk" element={<KioskPage />} />
-          <Route path="/doctor" element={<DoctorDashboard />} />
-          <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/staff-login" element={<StaffLoginPage />} />
+          
+          <Route 
+            path="/doctor" 
+            element={
+              <ProtectedRoute allowedRoles={['DOCTOR', 'ADMIN']}>
+                <DoctorDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/admin" 
+            element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <AdminPanel />
+              </ProtectedRoute>
+            } 
+          />
+          
           <Route path="*" element={<Navigate to="/kiosk" replace />} />
         </Routes>
       </div>

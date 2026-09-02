@@ -73,7 +73,10 @@ export default function DoctorDashboard() {
   const fetchSessions = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3000/api/sessions');
+      const { getAuthHeaders } = await import('../services/authService.js');
+      const res = await fetch('http://localhost:3000/api/sessions', {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setSessionsData(data);
@@ -291,9 +294,10 @@ export default function DoctorDashboard() {
 
     // Step C: Update status in Database
     try {
+      const { getAuthHeaders } = await import('../services/authService.js');
       await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status: 'CALLED' })
       });
       fetchSessions();

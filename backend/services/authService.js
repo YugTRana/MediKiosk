@@ -1,5 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
 const prisma = new PrismaClient();
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_change_in_prod';
 
 /**
  * Authentication & Patient Profile Management Service
@@ -45,12 +49,18 @@ async function registerPatient({ name, mobile, password, age, gender, address })
     data: {
       name: name.trim(),
       mobile: cleanMobile,
-      password: password.trim(), // Stored securely
+      password: await bcrypt.hash(password.trim(), 10), // Stored securely
       age: parsedAge,
       gender: patientGender,
       address: patientAddress
     }
   });
+
+  const token = jwt.sign(
+    { id: newPatient.id, mobile: newPatient.mobile, role: 'PATIENT' },
+    JWT_SECRET,
+    { expiresIn: '8h' }
+  );
 
   console.log(`🎉 [Auth Service] New Patient Registered: ${newPatient.name} (+91 ${newPatient.mobile})`);
 
@@ -61,7 +71,8 @@ async function registerPatient({ name, mobile, password, age, gender, address })
     age: newPatient.age,
     gender: newPatient.gender,
     address: newPatient.address,
-    createdAt: newPatient.createdAt
+    createdAt: newPatient.createdAt,
+    token
   };
 }
 
@@ -86,9 +97,16 @@ async function loginPatient({ mobile, password }) {
     throw new Error(`No account found with mobile +91 ${cleanMobile}. Please Sign Up first.`);
   }
 
-  if (patient.password !== password.trim()) {
+  const isMatch = await bcrypt.compare(password.trim(), patient.password);
+  if (!isMatch) {
     throw new Error('Incorrect password entered. Please try again.');
   }
+
+  const token = jwt.sign(
+    { id: patient.id, mobile: patient.mobile, role: 'PATIENT' },
+    JWT_SECRET,
+    { expiresIn: '8h' }
+  );
 
   console.log(`🔑 [Auth Service] Patient Logged In: ${patient.name} (+91 ${patient.mobile})`);
 
@@ -99,7 +117,8 @@ async function loginPatient({ mobile, password }) {
     age: patient.age,
     gender: patient.gender,
     address: patient.address,
-    createdAt: patient.createdAt
+    createdAt: patient.createdAt,
+    token
   };
 }
 
@@ -189,10 +208,49 @@ async function deletePatientProfile(id) {
   };
 }
 
+/**
+ * 6. Staff Login (Doctor/Admin)
+ */
+async function loginStaff({ username, password }) {
+  if (!username || !password) {
+    throw new Error('Please enter username and password.');
+  }
+
+  const staff = await prisma.staffUser.findUnique({
+    where: { username: username.trim() }
+  });
+
+  if (!staff) {
+    throw new Error('Invalid username or password.');
+  }
+
+  const isMatch = await bcrypt.compare(password.trim(), staff.password);
+  if (!isMatch) {
+    throw new Error('Invalid username or password.');
+  }
+
+  const token = jwt.sign(
+    { id: staff.id, username: staff.username, role: staff.role },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+
+  console.log(`🔑 [Auth Service] Staff Logged In: ${staff.username} (${staff.role})`);
+
+  return {
+    id: staff.id,
+    username: staff.username,
+    name: staff.name,
+    role: staff.role,
+    token
+  };
+}
+
 module.exports = {
   registerPatient,
   loginPatient,
   getAllPatients,
   updatePatientProfile,
-  deletePatientProfile
+  deletePatientProfile,
+  loginStaff
 };
