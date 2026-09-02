@@ -796,16 +796,8 @@ export default function KioskPage() {
           </div>
         </div>
 
-        {/* Global Controls: Language, Audio Narration & Demo Navigation */}
+        {/* Global Controls: Language & Audio Narration */}
         <div className="flex items-center gap-2 flex-wrap">
-          <a
-            href="/doctor"
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1 cursor-pointer"
-            title="Switch to Doctor Review Dashboard"
-          >
-            <Stethoscope className="w-3.5 h-3.5 text-blue-400" /> Doctor
-          </a>
-
           <button
             onClick={() => setTtsEnabled(!ttsEnabled)}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border cursor-pointer ${
