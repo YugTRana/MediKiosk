@@ -441,14 +441,6 @@ export default function DoctorDashboard() {
           </div>
 
           <a
-            href="/admin"
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
-            title="Open Demo Admin & Reset Panel"
-          >
-            <Settings className="w-3.5 h-3.5 text-blue-400" /> Admin & Reset
-          </a>
-
-          <a
             href="/kiosk"
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
             title="Open Patient Kiosk Touchscreen"

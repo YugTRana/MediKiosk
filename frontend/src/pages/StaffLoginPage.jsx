@@ -25,8 +25,6 @@ export default function StaffLoginPage() {
       // Navigate based on role if no 'from' location
       if (from) {
         navigate(from, { replace: true });
-      } else if (staffProfile.role === 'ADMIN') {
-        navigate('/admin', { replace: true });
       } else {
         navigate('/doctor', { replace: true });
       }

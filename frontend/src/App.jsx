@@ -1,9 +1,8 @@
 import React from 'react';
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { Monitor, Stethoscope, Shield, HeartPulse } from 'lucide-react';
+import { Monitor, Stethoscope, HeartPulse } from 'lucide-react';
 import KioskPage from './pages/KioskPage.jsx';
 import DoctorDashboard from './pages/DoctorDashboard.jsx';
-import AdminPanel from './pages/AdminPanel.jsx';
 import StaffLoginPage from './pages/StaffLoginPage.jsx';
 
 function GlobalNav() {
@@ -50,19 +49,6 @@ function GlobalNav() {
           >
             <Stethoscope className="w-4 h-4" /> Doctor Dashboard
           </NavLink>
-
-          <NavLink
-            to="/admin"
-            className={({ isActive }) =>
-              `px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 transition-all ${
-                isActive
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-              }`
-            }
-          >
-            <Shield className="w-4 h-4" /> Admin Panel
-          </NavLink>
         </div>
       </div>
     </nav>
@@ -108,11 +94,7 @@ export default function App() {
           
           <Route 
             path="/admin" 
-            element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <AdminPanel />
-              </ProtectedRoute>
-            } 
+            element={<Navigate to="/doctor" replace />} 
           />
           
           <Route path="*" element={<Navigate to="/kiosk" replace />} />
