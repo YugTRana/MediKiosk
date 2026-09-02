@@ -554,12 +554,12 @@ export default function KioskPage() {
 
     const title = isAyushFlow 
       ? ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? AYUSH_COMPLAINT_META.titleHi : AYUSH_COMPLAINT_META.titleEn)
-      : ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? selectedComplaint?.titleHi : selectedComplaint?.title);
+      : ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? selectedComplaint?.titleHi : selectedComplaint?.titleEn);
 
     const readBack = generatePatientReadBackSummary({
       complaintTitle: title || 'Consultation',
       answers: finalAnswers,
-      digitizedDocument,
+      digitizedDocument: extractedDocData || null,
       ayushAssessment: ayushData
     }, selectedLanguage);
 
