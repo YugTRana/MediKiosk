@@ -1,9 +1,11 @@
 import React from 'react';
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { Monitor, Stethoscope, HeartPulse } from 'lucide-react';
+import { Monitor, Stethoscope, HeartPulse, ShieldAlert } from 'lucide-react';
 import KioskPage from './pages/KioskPage.jsx';
 import DoctorDashboard from './pages/DoctorDashboard.jsx';
 import StaffLoginPage from './pages/StaffLoginPage.jsx';
+import AdminLoginPage from './pages/AdminLoginPage.jsx';
+import AdminPanel from './pages/AdminPanel.jsx';
 
 function GlobalNav() {
   return (
@@ -49,6 +51,21 @@ function GlobalNav() {
           >
             <Stethoscope className="w-4 h-4" /> Doctor Dashboard
           </NavLink>
+          
+          <div className="w-px h-6 bg-slate-700 mx-1"></div>
+
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 transition-all ${
+                isActive
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`
+            }
+          >
+            <ShieldAlert className="w-4 h-4" /> Admin
+          </NavLink>
         </div>
       </div>
     </nav>
@@ -61,30 +78,31 @@ function ProtectedRoute({ children, allowedRoles }) {
   const location = useLocation();
 
   if (!staffToken) {
+    if (location.pathname.startsWith('/admin')) {
+      return <Navigate to="/admin-login" state={{ from: location }} replace />;
+    }
     return <Navigate to="/staff-login" state={{ from: location }} replace />;
   }
-
-  if (allowedRoles && role) {
-    const normalizedRole = role.toUpperCase();
-    const normalizedAllowed = allowedRoles.map(r => r.toUpperCase());
-    if (!normalizedAllowed.includes(normalizedRole)) {
-      return <Navigate to="/staff-login" state={{ from: location }} replace />;
-    }
+  if (allowedRoles && !allowedRoles.includes(role?.toUpperCase())) {
+    return <Navigate to="/staff-login" replace />;
   }
-
   return children;
 }
 
 export default function App() {
+  const location = useLocation();
+  const hideNav = location.pathname === '/staff-login' || location.pathname === '/admin-login';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
-      <GlobalNav />
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {!hideNav && <GlobalNav />}
       
-      <div className="flex-1">
+      <main className="flex-1">
         <Routes>
           <Route path="/" element={<Navigate to="/kiosk" replace />} />
           <Route path="/kiosk" element={<KioskPage />} />
           <Route path="/staff-login" element={<StaffLoginPage />} />
+          <Route path="/admin-login" element={<AdminLoginPage />} />
           
           <Route 
             path="/doctor" 
@@ -97,12 +115,16 @@ export default function App() {
           
           <Route 
             path="/admin" 
-            element={<Navigate to="/doctor" replace />} 
+            element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <AdminPanel />
+              </ProtectedRoute>
+            } 
           />
           
           <Route path="*" element={<Navigate to="/kiosk" replace />} />
         </Routes>
-      </div>
+      </main>
     </div>
   );
 }

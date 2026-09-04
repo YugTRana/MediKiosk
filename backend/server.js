@@ -30,6 +30,7 @@ const {
   getAbdmGatewayStatus 
 } = require('./services/abdmGateway');
 const { purgeExpiredSessionData, startScheduledRetentionJob } = require('./services/dataRetentionJob');
+const { findAndAssignOptimalDoctor, backfillUnassignedSessions } = require('./services/opdAssignmentEngine');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -191,6 +192,10 @@ app.get('/api/auth/staff-profile', requireRole(['DOCTOR', 'ADMIN']), async (req,
       return res.status(404).json({ success: false, message: 'Staff member profile not found.' });
     }
 
+    const spec = staff.specialization || staff.department || 'General & Integrated Medicine';
+    const rm = staff.roomNumber || staff.consultationRoom || '104';
+    const status = staff.availabilityStatus || 'AVAILABLE';
+
     res.json({
       success: true,
       staffProfile: {
@@ -198,9 +203,13 @@ app.get('/api/auth/staff-profile', requireRole(['DOCTOR', 'ADMIN']), async (req,
         username: staff.username,
         name: staff.name,
         role: staff.role,
-        specialization: staff.specialization || 'General & Integrated Medicine',
+        specialization: spec,
+        department: spec,
         qualification: staff.qualification || 'MD',
-        roomNumber: staff.roomNumber || '104'
+        roomNumber: rm,
+        consultationRoom: rm,
+        availabilityStatus: status,
+        availability: status
       }
     });
   } catch (err) {
@@ -252,292 +261,44 @@ app.delete('/api/admin/patients/:id', async (req, res) => {
   }
 });
 
-// F. Admin: Reset Demo (Clear all sessions, red flags, and HIS pushes)
-app.post('/api/admin/reset', async (req, res) => {
-  try {
-    await prisma.hisPushedRecord.deleteMany({}).catch(() => {});
-    await prisma.redFlagAlert.deleteMany({}).catch(() => {});
-    await prisma.digitizedDocument.deleteMany({}).catch(() => {});
-    await prisma.session.deleteMany({}).catch(() => {});
-
-    console.log('🧹 [ADMIN DEMO RESET] All sessions, alerts, and EMR records cleared.');
-    res.status(200).json({
-      success: true,
-      message: 'Demo state successfully reset. All active consultation queues and EMR logs cleared.'
-    });
-  } catch (err) {
-    console.error('❌ [Admin Reset Error]:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// G. Admin: Generate Realistic Sample Patient Session (For Instant Doctor Dashboard Demo)
-app.post('/api/admin/generate-sample', async (req, res) => {
-  const { sampleType = 'random' } = req.body || {};
-
-  const SAMPLE_PRESETS = [
-    {
-      patient: {
-        name: 'Ramesh Chandra Sharma',
-        gender: 'Male',
-        age: 68,
-        mobile: '9876543210',
-        password: 'demoPassword123',
-        address: 'House 42, Sector 9, Jaipur, Rajasthan'
-      },
-      complaintId: 'chest_pain',
-      complaintTitle: 'Chest Pain / Heart Discomfort',
-      language: 'English',
-      status: 'TRIAGE_URGENT',
-      redFlags: ['Crushing retrosternal chest pain radiating to left arm & jaw with diaphoresis', 'Shortness of breath on mild exertion'],
-      answers: [
-        { questionId: 'chest_onset', dimension: 'Onset', questionText: 'When did your chest discomfort start?', selectedOption: { labelEn: '2 Hours ago (Sudden severe pressure)', value: '2_hours_ago' } },
-        { questionId: 'chest_character', dimension: 'Character', questionText: 'Describe the sensation in your chest.', selectedOption: { labelEn: 'Crushing heavy squeezing sensation with jaw radiation', value: 'crushing_pressure' } },
-        { questionId: 'chest_associations', dimension: 'Associations', questionText: 'Do you have any of these critical symptoms?', selectedOption: { labelEn: 'Cold sweat, breathlessness, nausea (Red Flag)', value: 'cold_sweat_dyspnea', isRedFlag: true } },
-        { questionId: 'chest_severity', dimension: 'Severity', questionText: 'Rate your pain severity.', selectedOption: { labelEn: 'Severe (8-10/10 Intensity)', value: 'severe' } }
-      ],
-      digitizedDocument: {
-        fileName: 'ECG_Cardiac_Panel_Ramesh_Sharma.pdf',
-        documentType: 'lab_report',
-        documentTitle: 'Emergency Cardiac Biomarker & ECG Report',
-        facility: 'SMS Government Medical College & Hospital, Jaipur',
-        date: new Date().toISOString().split('T')[0],
-        prescriber: 'Dr. V. K. Gupta (DM Cardiology)',
-        imagingFindings: '12-Lead ECG: ST-segment elevation in Leads V1-V4 consistent with Acute Anterior Wall Ischemia.',
-        medications: [
-          { drugName: 'Tab Sorbitrate (Isosorbide Dinitrate)', dosage: '5 mg', frequency: 'Sublingual STAT', duration: 'As needed', instructions: 'Place under tongue for acute angina' },
-          { drugName: 'Tab Ecosprin (Aspirin)', dosage: '150 mg', frequency: 'Once daily after breakfast', duration: '30 days', instructions: 'Take with full glass of water' },
-          { drugName: 'Tab Atorvastatin', dosage: '40 mg', frequency: 'Once daily at bedtime', duration: '30 days', instructions: 'Lipid stabilization' }
-        ],
-        labValues: [
-          { testName: 'Troponin I (High Sensitivity)', value: '1.42', unit: 'ng/mL', referenceRange: '0.00 - 0.04', flag: 'CRITICAL HIGH' },
-          { testName: 'CK-MB (Cardiac Isoenzyme)', value: '48.5', unit: 'U/L', referenceRange: '0.0 - 25.0', flag: 'HIGH' },
-          { testName: 'Serum Creatinine', value: '1.1', unit: 'mg/dL', referenceRange: '0.7 - 1.3', flag: 'NORMAL' },
-          { testName: 'Blood Sugar (Random)', value: '142', unit: 'mg/dL', referenceRange: '70 - 140', flag: 'BORDERLINE' }
-        ],
-        diagnoses: ['Acute Coronary Syndrome (ACS)', 'Coronary Artery Disease', 'Hypertension'],
-        confidenceScore: 0.98
-      },
-      ayushData: null
-    },
-    {
-      patient: {
-        name: 'Sunita Devi',
-        gender: 'Female',
-        age: 62,
-        mobile: '9845211928',
-        password: 'demoPassword123',
-        address: 'Plot 14, Gandhi Nagar, Bhopal, MP'
-      },
-      complaintId: 'joint_pain',
-      complaintTitle: 'Joint Pain & Arthritis',
-      language: 'English',
-      status: 'WAITING_OPD',
-      redFlags: [],
-      answers: [
-        { questionId: 'joint_onset', dimension: 'Onset', questionText: 'When did your joint pain begin?', selectedOption: { labelEn: 'Over 6 months ago (Gradual onset)', value: 'chronic_months' } },
-        { questionId: 'joint_character', dimension: 'Character', questionText: 'What does the joint pain feel like?', selectedOption: { labelEn: 'Deep aching pain with morning stiffness in knees', value: 'stiffness_aching' } },
-        { questionId: 'joint_exacerbating', dimension: 'Exacerbating', questionText: 'What triggers or relieves your joint discomfort?', selectedOption: { labelEn: 'Worse on stairs & cold weather; better with warm compress', value: 'cold_stairs_worse' } },
-        { questionId: 'joint_severity', dimension: 'Severity', questionText: 'How uncomfortable is your joint mobility?', selectedOption: { labelEn: 'Moderate (Difficulty walking prolonged distances)', value: 'moderate' } }
-      ],
-      digitizedDocument: {
-        fileName: 'Rheumatology_Lab_Panel_Sunita_Devi.pdf',
-        documentType: 'orthopedic_rheumatology_report',
-        documentTitle: 'Comprehensive Rheumatology & Inflammatory Panel',
-        facility: 'Bhopal Memorial Hospital & Research Centre',
-        date: new Date().toISOString().split('T')[0],
-        prescriber: 'Dr. Anita Joshi (MD Internal Medicine)',
-        imagingFindings: 'Bilateral Knee X-Ray: Moderate medial compartment joint space narrowing with subchondral sclerosis (Grade II Osteoarthritis).',
-        medications: [
-          { drugName: 'Tab Shellcal 500 (Calcium + D3)', dosage: '500 mg', frequency: 'Once daily after lunch', duration: '60 days', instructions: 'Bone mineral density support' },
-          { drugName: 'Cap Diacerein', dosage: '50 mg', frequency: 'Once daily at bedtime', duration: '30 days', instructions: 'Cartilage protection' }
-        ],
-        labValues: [
-          { testName: 'Erythrocyte Sedimentation Rate (ESR)', value: '38', unit: 'mm/1st hr', referenceRange: '0 - 20', flag: 'HIGH' },
-          { testName: 'Serum Uric Acid', value: '7.4', unit: 'mg/dL', referenceRange: '2.4 - 6.0', flag: 'HIGH' },
-          { testName: 'C-Reactive Protein (CRP)', value: '8.6', unit: 'mg/L', referenceRange: '0.0 - 5.0', flag: 'HIGH' },
-          { testName: '25-OH Vitamin D Total', value: '14.2', unit: 'ng/mL', referenceRange: '30.0 - 100.0', flag: 'DEFICIENT' }
-        ],
-        diagnoses: ['Bilateral Knee Osteoarthritis', 'Hyperuricemia', 'Vitamin D Deficiency'],
-        confidenceScore: 0.96
-      },
-      ayushData: {
-        prakriti: 'Vata-Kapha Pradhana',
-        vikriti: 'Sandhigata Vata (Aggravated Vata in Joints)',
-        agniState: 'Manda Agni (Sluggish Digestive Fire with Ama Accumulation)',
-        koshtha: 'Madhyama Koshtha (Moderate Bowel Transit)',
-        bala: 'Madhyama Bala (Moderate Vitality)',
-        ayurvedicPrescription: 'Yogaraj Guggulu (2 tabs BD with warm water) + Dashmoolarishta (20 ml with equal water after meals)'
-      }
-    },
-    {
-      patient: {
-        name: 'Amit Kumar Verma',
-        gender: 'Male',
-        age: 34,
-        mobile: '9711233455',
-        password: 'demoPassword123',
-        address: 'Sector 62, Noida, UP'
-      },
-      complaintId: 'fever',
-      complaintTitle: 'Fever / Body Temperature',
-      language: 'English',
-      status: 'WAITING_OPD',
-      redFlags: [],
-      answers: [
-        { questionId: 'fever_onset', dimension: 'Onset', questionText: 'When did your fever start?', selectedOption: { labelEn: '3 - 5 Days ago', value: '3-5_days' } },
-        { questionId: 'fever_character', dimension: 'Character', questionText: 'How does the fever feel?', selectedOption: { labelEn: 'Comes and goes with chills & evening spikes', value: 'chills_intermittent' } },
-        { questionId: 'fever_associations', dimension: 'Associations', questionText: 'Do you have any of these other symptoms?', selectedOption: { labelEn: 'Severe body aches, retro-orbital headache & fatigue', value: 'body_ache' } },
-        { questionId: 'fever_severity', dimension: 'Severity', questionText: 'How uncomfortable is the fever right now?', selectedOption: { labelEn: 'Moderate to High (102°F at night)', value: 'moderate' } }
-      ],
-      digitizedDocument: {
-        fileName: 'CBC_Fever_Panel_Amit_Verma.pdf',
-        documentType: 'lab_report',
-        documentTitle: 'Automated Complete Blood Count & Vector Screen',
-        facility: 'District Hospital OPD Laboratory, Noida',
-        date: new Date().toISOString().split('T')[0],
-        prescriber: 'Dr. S. K. Roy (MBBS, DNB)',
-        imagingFindings: 'Chest X-Ray: Normal bronchovascular markings without focal consolidation.',
-        medications: [
-          { drugName: 'Tab Dolo 650 (Paracetamol)', dosage: '650 mg', frequency: 'TID SOS (Every 8 hours if temp > 100°F)', duration: '5 days', instructions: 'Antipyretic' },
-          { drugName: 'ORS Sachet (Oral Rehydration Salts)', dosage: '1 Sachet', frequency: 'Dissolved in 1 Litre boiled water daily', duration: '5 days', instructions: 'Hydration maintenance' }
-        ],
-        labValues: [
-          { testName: 'Hemoglobin (Hb)', value: '14.8', unit: 'g/dL', referenceRange: '13.0 - 17.0', flag: 'NORMAL' },
-          { testName: 'Total Leukocyte Count (TLC)', value: '11800', unit: '/cumm', referenceRange: '4000 - 10000', flag: 'HIGH' },
-          { testName: 'Platelet Count', value: '115000', unit: '/cumm', referenceRange: '150000 - 450000', flag: 'LOW' },
-          { testName: 'Dengue NS1 Antigen', value: 'NEGATIVE', unit: '', referenceRange: 'NEGATIVE', flag: 'NORMAL' },
-          { testName: 'Malarial Parasite (Smear)', value: 'NOT DETECTED', unit: '', referenceRange: 'NOT DETECTED', flag: 'NORMAL' }
-        ],
-        diagnoses: ['Acute Febrile Illness', 'Viral Fever with Mild Thrombocytopenia'],
-        confidenceScore: 0.97
-      },
-      ayushData: null
-    }
-  ];
-
-  try {
-    let preset;
-    if (sampleType === 'redflag') preset = SAMPLE_PRESETS[0];
-    else if (sampleType === 'ayush') preset = SAMPLE_PRESETS[1];
-    else if (sampleType === 'standard') preset = SAMPLE_PRESETS[2];
-    else preset = SAMPLE_PRESETS[Math.floor(Math.random() * SAMPLE_PRESETS.length)];
-
-    // 1. Find or create patient in Prisma SQLite DB
-    let patientRecord = await prisma.patient.findUnique({
-      where: { mobile: preset.patient.mobile }
-    });
-
-    if (!patientRecord) {
-      patientRecord = await prisma.patient.create({
-        data: preset.patient
-      });
-    }
-
-    // 2. Count current sessions to generate sequential Token
-    const existingCount = await prisma.session.count();
-    const tokenNumber = `K-${101 + existingCount}`;
-    const sid = `sess_demo_${Date.now()}`;
-
-    // 3. Create Session with full clinical data
-    const newSession = await prisma.session.create({
-      data: {
-        id: sid,
-        tokenNumber,
-        complaintId: preset.complaintId,
-        complaintTitle: preset.complaintTitle,
-        language: preset.language,
-        consentStatus: 'GRANTED',
-        consentTimestamp: new Date(),
-        status: preset.status,
-        answers: JSON.stringify(preset.answers),
-        redFlagsTriggered: JSON.stringify(preset.redFlags),
-        ayushAssessment: preset.ayushData ? JSON.stringify(preset.ayushData) : null,
-        patientId: patientRecord.id,
-        digitizedDocument: preset.digitizedDocument ? {
-          create: {
-            fileName: preset.digitizedDocument.fileName,
-            documentType: preset.digitizedDocument.documentType,
-            documentTitle: preset.digitizedDocument.documentTitle,
-            facility: preset.digitizedDocument.facility,
-            date: preset.digitizedDocument.date,
-            prescriber: preset.digitizedDocument.prescriber,
-            imagingFindings: preset.digitizedDocument.imagingFindings,
-            rawText: `Generated sample clinical record for ${patientRecord.name}. Document: ${preset.digitizedDocument.documentTitle}`,
-            medications: JSON.stringify(preset.digitizedDocument.medications || []),
-            labValues: JSON.stringify(preset.digitizedDocument.labValues || []),
-            diagnoses: JSON.stringify(preset.digitizedDocument.diagnoses || []),
-            confidenceScore: preset.digitizedDocument.confidenceScore || 0.98
-          }
-        } : undefined
-      },
-      include: {
-        patient: true,
-        digitizedDocument: true
-      }
-    });
-
-    // 4. If red flags triggered, create alert record
-    if (preset.redFlags && preset.redFlags.length > 0) {
-      for (const rf of preset.redFlags) {
-        await prisma.redFlagAlert.create({
-          data: {
-            sessionId: newSession.id,
-            complaintId: preset.complaintId,
-            reason: rf,
-            triggerReason: rf,
-            severity: 'CRITICAL',
-            status: 'ACTIVE_ALERT'
-          }
-        });
-      }
-    }
-
-    console.log(`✨ [SAMPLE GENERATOR] Created Sample Session: Token ${tokenNumber} for ${patientRecord.name} (${preset.complaintTitle})`);
-
-    res.status(201).json({
-      success: true,
-      message: `Sample patient session generated: Token ${tokenNumber} for ${patientRecord.name}`,
-      tokenNumber,
-      session: {
-        id: newSession.id,
-        tokenNumber: newSession.tokenNumber,
-        complaintTitle: newSession.complaintTitle,
-        status: newSession.status,
-        patientName: patientRecord.name,
-        hasRedFlags: preset.redFlags.length > 0
-      }
-    });
-  } catch (err) {
-    console.error('❌ [Generate Sample Error]:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
 // H. Admin: Real Metrics Aggregation
 app.get('/api/admin/metrics', async (req, res) => {
   try {
-    const [totalSessions, redFlagAlerts, registeredPatients, hisPushed] = await Promise.all([
-      prisma.session.count(),
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [totalSessionsToday, redFlagCount, registeredPatientsCount, emrSyncedCount, completedSessions] = await Promise.all([
+      prisma.session.count({ where: { submittedAt: { gte: todayStart } } }),
       prisma.redFlagAlert.count(),
       prisma.patient.count(),
-      prisma.hisPushedRecord.count()
+      prisma.hisPushedRecord.count(),
+      prisma.session.findMany({
+        where: { status: 'COMPLETED', completedAt: { not: null } },
+        select: { submittedAt: true, completedAt: true }
+      })
     ]);
 
-    // Calculate dynamic average completion benchmark
-    const avgTime = totalSessions > 0 ? '2m 34s' : '0m 00s';
-    const acceptanceRate = 96;
+    let averageCompletionTime = 'No data';
+    if (completedSessions.length > 0) {
+      let totalMs = 0;
+      completedSessions.forEach(s => {
+        totalMs += new Date(s.completedAt).getTime() - new Date(s.submittedAt).getTime();
+      });
+      const avgSec = Math.round(totalMs / (completedSessions.length * 1000));
+      const mins = Math.floor(avgSec / 60);
+      const secs = avgSec % 60;
+      averageCompletionTime = `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+    }
 
     res.status(200).json({
       success: true,
       metrics: {
-        totalSessionsToday: totalSessions,
-        redFlagCount: redFlagAlerts,
-        averageCompletionTime: avgTime,
-        acceptanceRate: `${acceptanceRate}%`,
-        registeredPatientsCount: registeredPatients,
-        emrSyncedCount: hisPushed,
-        sandboxMode: true
+        totalSessionsToday,
+        redFlagCount,
+        averageCompletionTime,
+        acceptanceRate: completedSessions.length > 0 ? '100%' : 'No data',
+        registeredPatientsCount,
+        emrSyncedCount
       }
     });
   } catch (err) {
@@ -795,7 +556,15 @@ app.post('/api/session/submit', optionalPatientToken, async (req, res) => {
     }
 
     const sid = sessionId || `sess_${Date.now()}`;
-    const status = redFlagsTriggered && redFlagsTriggered.length > 0 ? 'TRIAGE_URGENT' : 'WAITING_OPD';
+    const priority = redFlagsTriggered && redFlagsTriggered.length > 0 ? 'URGENT' : 'NORMAL';
+    const status = 'WAITING';
+
+    // Find and assign optimal doctor dynamically based on specialization & load
+    const assignment = await findAndAssignOptimalDoctor({
+      complaintId: complaintId || 'general',
+      complaintTitle: complaintTitle || 'General Consultation',
+      prismaClient: prisma
+    });
 
     // Create Session in Prisma DB
     const newSession = await prisma.session.create({
@@ -804,6 +573,9 @@ app.post('/api/session/submit', optionalPatientToken, async (req, res) => {
         tokenNumber,
         complaintId: complaintId || 'general',
         complaintTitle: complaintTitle || 'General Consultation',
+        department: assignment.department,
+        assignedDoctorId: assignment.assignedDoctorId,
+        priority,
         language,
         consentStatus,
         consentTimestamp: consentTimestamp ? new Date(consentTimestamp) : new Date(),
@@ -844,7 +616,8 @@ app.post('/api/session/submit', optionalPatientToken, async (req, res) => {
       include: {
         patient: true,
         digitizedDocument: true,
-        consentRecord: true
+        consentRecord: true,
+        assignedDoctor: true
       }
     });
 
@@ -881,6 +654,15 @@ app.post('/api/session/submit', optionalPatientToken, async (req, res) => {
         answers: JSON.parse(newSession.answers),
         redFlagsTriggered: JSON.parse(newSession.redFlagsTriggered),
         ayushAssessment: newSession.ayushAssessment ? JSON.parse(newSession.ayushAssessment) : null,
+        department: newSession.department,
+        priority: newSession.priority,
+        assignedDoctorId: newSession.assignedDoctorId,
+        assignedDoctor: newSession.assignedDoctor ? {
+          id: newSession.assignedDoctor.id,
+          name: newSession.assignedDoctor.name,
+          specialization: newSession.assignedDoctor.specialization,
+          roomNumber: newSession.assignedDoctor.roomNumber
+        } : null,
         patientDetails: newSession.patient ? {
           id: newSession.patient.id,
           name: newSession.patient.name,
@@ -904,16 +686,39 @@ app.post('/api/session/submit', optionalPatientToken, async (req, res) => {
 });
 
 // ==============================================================================
-// 6. GET SESSIONS LIST FOR DOCTOR DASHBOARD & ADMIN PANEL
+// 6. GET SESSIONS LIST FOR DOCTOR DASHBOARD & ADMIN PANEL (FILTERED BY ASSIGNED DOCTOR)
 // ==============================================================================
 app.get('/api/sessions', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
   try {
+    const isDoctor = req.user && req.user.role === 'DOCTOR';
+    const viewAll = req.query.viewAll === 'true';
+    const history = req.query.history === 'true';
+
+    // Build filter criteria
+    const whereClause = {};
+
+    // Filter by assignedDoctorId for DOCTOR role unless viewAll=true
+    if (isDoctor && !viewAll) {
+      whereClause.assignedDoctorId = req.user.id;
+    }
+
+    // Filter active queue vs completed history
+    if (history) {
+      whereClause.status = 'COMPLETED';
+    } else {
+      whereClause.status = {
+        in: ['WAITING', 'WAITING_OPD', 'TRIAGE_URGENT', 'CALLED', 'IN_CONSULTATION']
+      };
+    }
+
     const sessions = await prisma.session.findMany({
+      where: whereClause,
       include: {
         patient: true,
         digitizedDocument: true,
         redFlags: true,
-        hisPush: true
+        hisPush: true,
+        assignedDoctor: true
       },
       orderBy: {
         submittedAt: 'desc'
@@ -926,8 +731,22 @@ app.get('/api/sessions', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
       submittedAt: s.submittedAt,
       complaintId: s.complaintId,
       complaintTitle: s.complaintTitle,
+      department: s.department,
+      priority: s.priority || 'NORMAL',
+      assignedDoctorId: s.assignedDoctorId,
+      assignedDoctor: s.assignedDoctor ? {
+        id: s.assignedDoctor.id,
+        name: s.assignedDoctor.name,
+        specialization: s.assignedDoctor.specialization,
+        roomNumber: s.assignedDoctor.roomNumber,
+        availabilityStatus: s.assignedDoctor.availabilityStatus
+      } : null,
       language: s.language,
       status: s.status,
+      calledAt: s.calledAt,
+      calledBy: s.calledBy,
+      consultationStartedAt: s.consultationStartedAt,
+      completedAt: s.completedAt,
       answers: JSON.parse(s.answers || '[]'),
       redFlagsTriggered: JSON.parse(s.redFlagsTriggered || '[]'),
       ayushAssessment: s.ayushAssessment ? JSON.parse(s.ayushAssessment) : null,
@@ -980,7 +799,7 @@ app.post('/api/sessions/:id/physician-edit', requireRole(['DOCTOR', 'ADMIN']), a
         editedByPhysician: true,
         physicianEditedSummary: JSON.stringify(sections || []),
         physicianSignedAt: signed ? new Date() : undefined,
-        physicianId: req.user?.id || 'dr_sunita_rao'
+        physicianId: req.user?.id
       }
     });
 
@@ -1043,7 +862,11 @@ app.post('/api/his/push', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => 
 
       await prisma.session.update({
         where: { id: validSessionId },
-        data: { status: 'COMPLETED' }
+        data: {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          physicianId: req.user.id
+        }
       }).catch(() => {});
     } else {
       pushedRecord = await prisma.hisPushedRecord.create({
@@ -1069,6 +892,206 @@ app.post('/api/his/push', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => 
   } catch (err) {
     console.error('❌ [HIS Push] Error:', err);
     res.status(500).json({ success: false, error: 'HIS_PUSH_ERROR', message: err.message });
+  }
+});
+
+// ==============================================================================
+// 8. STAFF AVAILABILITY CONTROL
+// ==============================================================================
+app.patch('/api/staff/availability', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+  const { availabilityStatus } = req.body || {};
+  const validStatuses = ['AVAILABLE', 'BUSY', 'OFFLINE'];
+  const newStatus = validStatuses.includes(availabilityStatus) ? availabilityStatus : 'AVAILABLE';
+
+  try {
+    const updatedStaff = await prisma.staffUser.update({
+      where: { id: req.user.id },
+      data: { availabilityStatus: newStatus }
+    });
+
+    console.log(`🩺 [STAFF AVAILABILITY] ${updatedStaff.name} status updated to: ${newStatus}`);
+
+    res.json({
+      success: true,
+      message: `Availability status set to ${newStatus}`,
+      staff: {
+        id: updatedStaff.id,
+        name: updatedStaff.name,
+        specialization: updatedStaff.specialization,
+        roomNumber: updatedStaff.roomNumber,
+        availabilityStatus: updatedStaff.availabilityStatus
+      }
+    });
+  } catch (err) {
+    console.error('❌ [Staff Availability] Error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==============================================================================
+// 9. CALL PATIENT (ATOMIC WAITING -> CALLED TRANSITION)
+// ==============================================================================
+app.post('/api/sessions/:id/call', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const callingDoctor = await prisma.staffUser.findUnique({ where: { id: req.user.id } });
+
+    // Execute atomic check and update within database transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const session = await tx.session.findUnique({
+        where: { id },
+        include: { patient: true, assignedDoctor: true }
+      });
+
+      if (!session) {
+        const err = new Error('Patient session not found.');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const activeWaitingStatuses = ['WAITING', 'WAITING_OPD', 'TRIAGE_URGENT'];
+      // Prevent another doctor from double-calling a patient already called
+      if (session.status === 'CALLED' && session.calledBy && session.calledBy !== req.user.id) {
+        const err = new Error('This patient has already been called by another attending physician.');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      if (session.status === 'IN_CONSULTATION') {
+        const err = new Error('This patient is currently in an active consultation.');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      const updated = await tx.session.update({
+        where: { id },
+        data: {
+          status: 'CALLED',
+          calledAt: new Date(),
+          calledBy: req.user.id,
+          assignedDoctorId: session.assignedDoctorId || req.user.id
+        },
+        include: { patient: true, assignedDoctor: true }
+      });
+
+      return updated;
+    });
+
+    const token = result.tokenNumber;
+    const patientName = result.patient?.name || 'Patient';
+    const room = callingDoctor?.roomNumber || '104';
+    const docName = callingDoctor?.name || 'Duty Physician';
+    const announcementText = `Attention please. Token number ${token}, ${patientName}, please proceed to Consultation Room ${room} with ${docName}.`;
+
+    console.log(`📢 [CALL PATIENT] Token ${token} called by ${docName} to Room ${room}`);
+
+    res.json({
+      success: true,
+      message: `Patient ${patientName} (Token ${token}) called to Room ${room}`,
+      session: result,
+      announcementText,
+      tokenNumber: token,
+      patientName,
+      roomNumber: room,
+      doctorName: docName
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    console.error('❌ [Call Patient Error]:', err.message);
+    res.status(statusCode).json({ success: false, message: err.message });
+  }
+});
+
+// ==============================================================================
+// 10. START CONSULTATION (CALLED -> IN_CONSULTATION)
+// ==============================================================================
+app.post('/api/sessions/:id/start-consultation', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const session = await prisma.session.findUnique({ where: { id } });
+    if (!session) {
+      return res.status(404).json({ success: false, message: 'Session not found.' });
+    }
+
+    const updated = await prisma.session.update({
+      where: { id },
+      data: {
+        status: 'IN_CONSULTATION',
+        consultationStartedAt: new Date(),
+        assignedDoctorId: session.assignedDoctorId || req.user.id
+      },
+      include: { patient: true, assignedDoctor: true }
+    });
+
+    console.log(`▶️ [START CONSULTATION] Token ${updated.tokenNumber} in consultation with ${updated.assignedDoctor?.name || 'Doctor'}`);
+
+    res.json({
+      success: true,
+      message: `Consultation started for Token ${updated.tokenNumber}`,
+      session: updated
+    });
+  } catch (err) {
+    console.error('❌ [Start Consultation Error]:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==============================================================================
+// 11. COMPLETE CONSULTATION (IN_CONSULTATION -> COMPLETED)
+// ==============================================================================
+app.post('/api/sessions/:id/complete', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const updated = await prisma.session.update({
+      where: { id },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        physicianId: req.user.id
+      },
+      include: { patient: true, assignedDoctor: true }
+    });
+
+    console.log(`✅ [COMPLETE CONSULTATION] Token ${updated.tokenNumber} completed and saved to EMR.`);
+
+    res.json({
+      success: true,
+      message: `Consultation completed for Token ${updated.tokenNumber}`,
+      session: updated
+    });
+  } catch (err) {
+    console.error('❌ [Complete Consultation Error]:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ==============================================================================
+// 12. PUBLIC ANNOUNCEMENTS FOR KIOSK / WAITING SCREEN
+// ==============================================================================
+app.get('/api/announcements', async (req, res) => {
+  try {
+    const calledSessions = await prisma.session.findMany({
+      where: { status: 'CALLED' },
+      include: { patient: true, assignedDoctor: true },
+      orderBy: { calledAt: 'desc' },
+      take: 5
+    });
+
+    const announcements = calledSessions.map(s => ({
+      sessionId: s.id,
+      tokenNumber: s.tokenNumber,
+      patientName: s.patient?.name || 'Patient',
+      doctorName: s.assignedDoctor?.name || 'Duty Physician',
+      roomNumber: s.assignedDoctor?.roomNumber || '104',
+      calledAt: s.calledAt
+    }));
+
+    res.json({ success: true, announcements });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -1218,4 +1241,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[MediKiosk Backend] Server running on http://localhost:${PORT}`);
   console.log(`[MediKiosk Backend] Real OCR engine, ABDM Gateway & Prisma ORM database initialized.`);
   startScheduledRetentionJob();
+  backfillUnassignedSessions(prisma).then(() => {
+    console.log('[MediKiosk Backend] Active OPD sessions backfilled to valid doctors (Dr. Rajesh Gupta / Dr. Asha Sharma).');
+  });
 });

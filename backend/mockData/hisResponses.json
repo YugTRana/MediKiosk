@@ -10,16 +10,16 @@
   "doctorAvailability": [
     {
       "doctorId": "DOC-101",
-      "doctorName": "Dr. Sunita Rao",
-      "specialty": "General Physician",
+      "doctorName": "Dr. Asha Sharma",
+      "specialty": "Cardiology",
       "roomNumber": "104",
       "isAvailable": true
     },
     {
       "doctorId": "DOC-102",
       "doctorName": "Dr. Rajesh Gupta",
-      "specialty": "Cardiology",
-      "roomNumber": "108",
+      "specialty": "General Medicine",
+      "roomNumber": "104",
       "isAvailable": true
     }
   ]

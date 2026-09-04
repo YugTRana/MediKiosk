@@ -3,24 +3,10 @@
 // Real OCR Engine Interface - Zero Simulated Numbers
 // ============================================================================
 
-export const SAMPLE_DOCUMENTS = [
-  {
-    id: 'doc_diabetes',
-    name: 'Diabetes_Report_Prathamesh_Khatri.pdf',
-    label: 'Endocrine & Metabolic Report (Diabetes & Glycemic Panel)',
-    type: 'pdf',
-    documentType: 'lab_report',
-    complaintId: 'fever'
-  },
-  {
-    id: 'doc_ortho',
-    name: 'Joint_Pain_Report_Prathamesh_Khatri.pdf',
-    label: 'Orthopedic Joint X-Ray & Radiology Report',
-    type: 'pdf',
-    documentType: 'orthopedic_rheumatology_report',
-    complaintId: 'joint_pain'
-  }
-];
+// ============================================================================
+// MediKiosk Intelligent Document AI Service
+// Real OCR Engine Interface - Zero Simulated Numbers
+// ============================================================================
 
 export async function extractDocumentWithDocAI({ fileName, documentType = 'auto', complaintId = 'auto', file = null }) {
   try {
@@ -56,20 +42,7 @@ export async function extractDocumentWithDocAI({ fileName, documentType = 'auto'
     throw new Error(`Server responded with ${res.status}`);
   } catch (err) {
     console.error('[DocAIService] OCR extraction error:', err);
-    return {
-      documentType: 'other',
-      documentTitle: 'Uploaded Medical Record',
-      facility: 'Diagnostic Healthcare Facility',
-      date: new Date().toISOString().split('T')[0],
-      prescriber: 'Consulting Physician',
-      patientName: 'Patient',
-      imagingFindings: '',
-      medications: [],
-      labValues: [],
-      diagnoses: ['Uploaded Document Scanned'],
-      rawText: '',
-      confidenceScore: 0.85
-    };
+    throw err;
   }
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Component } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Stethoscope, Users, CheckCircle2, AlertTriangle, RefreshCw, Clock, 
@@ -6,7 +6,7 @@ import {
   Activity, HeartPulse, Edit3, Check, ThumbsUp, ThumbsDown, Copy, 
   Sparkles, ShieldAlert, Award, FileCheck, CheckCheck, Code2, Send,
   Layers, Database, ArrowRight, ShieldCheck, UserCheck, Volume2, VolumeX,
-  BellRing, Radio, Settings, User, Lock, LogOut
+  BellRing, Radio, Settings, User, Lock, LogOut, Languages
 } from 'lucide-react';
 import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js';
 import { convertSessionToFhirR4Bundle, validateFhirR4Bundle } from '../services/fhirGenerator.js';
@@ -15,7 +15,7 @@ import { getLabFlagBadgeClass } from '../services/docAiService.js';
 import { clearStaffSession, getSavedStaffUser, fetchStaffProfile } from '../services/authService.js';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
 import DocumentTimeline from '../components/DocumentTimeline.jsx';
-import { Languages } from 'lucide-react';
+import { speakText, cancelSpeech } from '../services/speechService.js';
 
 // Play Realistic Hospital Chime Synthesizer via Web Audio API
 function playHospitalChime() {
@@ -52,10 +52,52 @@ function playHospitalChime() {
   }
 }
 
-export default function DoctorDashboard() {
+class DoctorDashboardErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[DoctorDashboardErrorBoundary] Render crash:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white p-8 flex flex-col items-center justify-center text-center font-sans">
+          <div className="bg-red-950/80 border-2 border-red-600 p-8 rounded-3xl max-w-xl shadow-2xl flex flex-col items-center gap-4">
+            <AlertTriangle className="w-16 h-16 text-red-400 animate-bounce" />
+            <h2 className="text-2xl font-black text-white">Physician Review Workspace Exception</h2>
+            <p className="text-sm text-red-200">
+              {this.state.error?.message || 'A render error occurred.'}
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-sm rounded-xl cursor-pointer shadow-md transition-all flex items-center gap-2 mt-2"
+            >
+              <RefreshCw className="w-4 h-4" /> Reload Doctor Workspace
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function DoctorDashboardMain() {
   const navigate = useNavigate();
   const [sessionsData, setSessionsData] = useState({ sessions: [], redFlags: [] });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleLogoutStaff = () => {
     clearStaffSession();
@@ -83,26 +125,44 @@ export default function DoctorDashboard() {
   const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [saveEditFeedback, setSaveEditFeedback] = useState(false);
 
-  const fetchSessions = async () => {
-    setLoading(true);
+  const [queueScope, setQueueScope] = useState('my'); // 'my' | 'all'
+
+  const fetchSessions = async (silent = false, scopeOverride = null) => {
+    if (!silent) setLoading(true);
+    if (!silent) setError(null);
     try {
+      const activeScope = scopeOverride || queueScope;
       const { getAuthHeaders } = await import('../services/authService.js');
-      const res = await fetch('http://localhost:3000/api/sessions', {
+      const url = activeScope === 'all'
+        ? `http://localhost:3000/api/sessions?viewAll=true&_t=${Date.now()}`
+        : `http://localhost:3000/api/sessions?_t=${Date.now()}`;
+
+      const res = await fetch(url, {
         headers: getAuthHeaders()
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
-        setSessionsData(data);
+        const sessionList = Array.isArray(data?.sessions) ? data.sessions : (Array.isArray(data) ? data : []);
+        setSessionsData({
+          sessions: sessionList,
+          redFlags: Array.isArray(data?.redFlags) ? data.redFlags : []
+        });
 
-        if (!selectedSessionId && data.sessions && data.sessions.length > 0) {
-          const firstRed = data.sessions.find(s => s.redFlagsTriggered && s.redFlagsTriggered.length > 0);
-          setSelectedSessionId(firstRed ? firstRed.id : data.sessions[0].id);
+        if (sessionList.length > 0) {
+          setSelectedSessionId(prev => {
+            if (prev && sessionList.some(s => s.id === prev)) return prev;
+            const firstRed = sessionList.find(s => s.redFlagsTriggered && Array.isArray(s.redFlagsTriggered) && s.redFlagsTriggered.length > 0);
+            return firstRed ? firstRed.id : sessionList[0].id;
+          });
         }
+      } else {
+        if (!silent) setError(data?.message || 'Failed to fetch patient queue');
       }
     } catch (err) {
-      console.warn('[DoctorDashboard] Failed to fetch sessions:', err);
+      console.error('Failed to fetch patient queue:', err);
+      if (!silent) setError(err.message || 'Network error connecting to hospital server');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -113,20 +173,23 @@ export default function DoctorDashboard() {
     fetchStaffProfile().then((profile) => {
       if (profile) setDoctorProfile(profile);
     });
-    const interval = setInterval(fetchSessions, 4000);
-    return () => clearInterval(interval);
-  }, []);
+    // Store interval ID to prevent overlapping polls
+    const intervalId = setInterval(() => {
+      fetchSessions(true);
+    }, 4000);
+    return () => clearInterval(intervalId);
+  }, [queueScope]);
 
   // Sort sessions: Red Flags prioritized to top in red, then by recent timestamp
   const sortedSessions = useMemo(() => {
-    if (!sessionsData.sessions) return [];
-    return [...sessionsData.sessions].sort((a, b) => {
-      const aIsRed = a.redFlagsTriggered && a.redFlagsTriggered.length > 0 ? 1 : 0;
-      const bIsRed = b.redFlagsTriggered && b.redFlagsTriggered.length > 0 ? 1 : 0;
+    const rawList = Array.isArray(sessionsData?.sessions) ? sessionsData.sessions : [];
+    return [...rawList].sort((a, b) => {
+      const aIsRed = a?.redFlagsTriggered && Array.isArray(a.redFlagsTriggered) && a.redFlagsTriggered.length > 0 ? 1 : 0;
+      const bIsRed = b?.redFlagsTriggered && Array.isArray(b.redFlagsTriggered) && b.redFlagsTriggered.length > 0 ? 1 : 0;
       if (aIsRed !== bIsRed) return bIsRed - aIsRed;
-      return new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0);
+      return new Date(b?.submittedAt || 0) - new Date(a?.submittedAt || 0);
     });
-  }, [sessionsData.sessions]);
+  }, [sessionsData?.sessions]);
 
   const currentSession = useMemo(() => {
     if (!sortedSessions || sortedSessions.length === 0) return null;
@@ -347,7 +410,26 @@ export default function DoctorDashboard() {
     setTimeout(() => setFhirCopyFeedback(false), 2000);
   };
 
-  // 1. Call Patient with Hospital Chime & Vocal TTS
+  // 0. Update Staff Doctor Availability Status (AVAILABLE / BUSY / OFFLINE)
+  const handleUpdateAvailability = async (e) => {
+    const newStatus = e.target.value;
+    setDoctorProfile(prev => ({ ...prev, availabilityStatus: newStatus }));
+    try {
+      const { getAuthHeaders } = await import('../services/authService.js');
+      await fetch('http://localhost:3000/api/staff/availability', {
+        method: 'PATCH',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ availabilityStatus: newStatus })
+      });
+    } catch (err) {
+      console.error('[DoctorDashboard] Failed to update availability status:', err);
+    }
+  };
+
+  // 1. Call Patient with Hospital Chime & Vocal TTS (Atomic Transaction)
   const handleCallPatient = async () => {
     if (!currentSession) return;
     const token = currentSession.tokenNumber || 'K-101';
@@ -379,21 +461,39 @@ export default function DoctorDashboard() {
       });
     }, 700);
 
-    // Step C: Update status in Database
+    // Step C: Update status in Database via atomic call endpoint
     try {
       const { getAuthHeaders } = await import('../services/authService.js');
-      await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/status`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ status: 'CALLED' })
+      const res = await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/call`, {
+        method: 'POST',
+        headers: getAuthHeaders()
       });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Could not call patient.');
+      }
       fetchSessions();
     } catch (e) {
       console.warn('[DoctorDashboard] Failed to update status to CALLED:', e);
     }
   };
 
-  // 2. Finalize Clinical Note & Push to Hospital EMR Database
+  // 2. Start Consultation (CALLED -> IN_CONSULTATION)
+  const handleStartConsultation = async () => {
+    if (!currentSession) return;
+    try {
+      const { getAuthHeaders } = await import('../services/authService.js');
+      await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/start-consultation`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      fetchSessions();
+    } catch (e) {
+      console.warn('[DoctorDashboard] Failed to start consultation:', e);
+    }
+  };
+
+  // 3. Finalize Clinical Note & Push to Hospital EMR Database (COMPLETED)
   const handleFinalizeAndPushToEmr = async () => {
     if (!currentSession || isPushingEmr) return;
     setIsPushingEmr(true);
@@ -409,7 +509,13 @@ export default function DoctorDashboard() {
         fhirBundle
       });
       setEmrPushSuccess(res);
-      // Refresh session list to reflect COMPLETED status
+      // Immediately complete session and refresh
+      const { getAuthHeaders } = await import('../services/authService.js');
+      await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/complete`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      }).catch(() => {});
+
       fetchSessions();
     } catch (err) {
       console.error('[DoctorDashboard] Failed to push to EMR:', err);
@@ -419,6 +525,7 @@ export default function DoctorDashboard() {
         syncedAt: new Date().toISOString(),
         receipt: { resourceCount: fhirBundle?.entry?.length || 5 }
       });
+      fetchSessions();
     } finally {
       setIsPushingEmr(false);
     }
@@ -426,6 +533,22 @@ export default function DoctorDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 flex flex-col gap-6 select-none font-sans">
+      {/* Visible Error Banner for API/Network failures */}
+      {error && (
+        <div className="bg-red-50 border-2 border-red-300 p-4 rounded-2xl flex items-center justify-between text-red-900 text-xs font-extrabold shadow-sm animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+            <span>Patient Queue Update Warning: {error}</span>
+          </div>
+          <button
+            onClick={() => fetchSessions()}
+            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1 shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Retry Sync
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="bg-slate-900 text-white p-5 rounded-2xl shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b-2 border-slate-800">
         <div className="flex items-center gap-3">
@@ -442,13 +565,12 @@ export default function DoctorDashboard() {
                 <Code2 className="w-3.5 h-3.5" /> FHIR R4 Connected
               </span>
             </div>
-            <p className="text-slate-400 text-xs font-medium">
+            <p className="text-slate-400 text-xs font-medium flex items-center gap-2 mt-0.5">
               {doctorProfile ? (
                 <>
                   <span className="text-slate-200 font-semibold">{doctorProfile.name}</span>
-                  {doctorProfile.qualification ? ` (${doctorProfile.qualification}${doctorProfile.specialization ? `, ${doctorProfile.specialization}` : ''})` : doctorProfile.specialization ? ` (${doctorProfile.specialization})` : ''}
-                  {doctorProfile.roomNumber ? ` • Consultation Room ${doctorProfile.roomNumber}` : ''}
-                  {doctorProfile.username ? ` [${doctorProfile.username}]` : ''}
+                  {doctorProfile.specialization ? ` (${doctorProfile.specialization})` : ''}
+                  {doctorProfile.roomNumber ? ` • Room ${doctorProfile.roomNumber}` : ''}
                 </>
               ) : (
                 'General & Integrated Medicine OPD'
@@ -459,6 +581,26 @@ export default function DoctorDashboard() {
 
         {/* Global Acceptance Rate & Navigation */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Availability Status Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Status:</span>
+            <select
+              value={doctorProfile?.availabilityStatus || 'AVAILABLE'}
+              onChange={handleUpdateAvailability}
+              className={`text-xs font-black px-2 py-0.5 rounded-lg border cursor-pointer ${
+                (doctorProfile?.availabilityStatus || 'AVAILABLE') === 'AVAILABLE'
+                  ? 'bg-emerald-600 text-white border-emerald-500'
+                  : (doctorProfile?.availabilityStatus || 'AVAILABLE') === 'BUSY'
+                    ? 'bg-amber-600 text-white border-amber-500'
+                    : 'bg-slate-700 text-slate-200 border-slate-600'
+              }`}
+            >
+              <option value="AVAILABLE">🟢 AVAILABLE</option>
+              <option value="BUSY">🟡 BUSY</option>
+              <option value="OFFLINE">🔴 OFFLINE</option>
+            </select>
+          </div>
+
           <div className="bg-slate-800/90 border border-slate-700/80 px-3.5 py-1.5 rounded-xl flex items-center gap-2">
             <Award className="w-4 h-4 text-amber-400" />
             <div className="text-right">
@@ -500,11 +642,37 @@ export default function DoctorDashboard() {
         {/* 1. COMPLETED PATIENT SESSIONS LIST (RED FLAGS AT TOP IN RED)               */}
         {/* ========================================================================= */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex flex-col gap-4 h-fit max-h-[850px]">
-          <div className="flex items-center justify-between border-b pb-3 border-slate-100">
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <Users className="w-5 h-5 text-blue-600" /> Patient Queue ({sortedSessions.length})
-            </h3>
-            <span className="text-[11px] font-bold text-slate-500">Sorted by Priority</span>
+          <div className="flex flex-col gap-2 border-b pb-3 border-slate-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" /> Patient Queue ({sortedSessions.length})
+              </h3>
+              <span className="text-[11px] font-bold text-slate-500">Sorted by Priority</span>
+            </div>
+
+            {/* Scope Toggle: My Queue vs All Hospital OPD */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+              <button
+                onClick={() => setQueueScope('my')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  queueScope === 'my'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                My Queue ({sortedSessions.filter(s => s.assignedDoctorId === doctorProfile?.id).length})
+              </button>
+              <button
+                onClick={() => setQueueScope('all')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  queueScope === 'all'
+                    ? 'bg-blue-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All Hospital OPD
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 max-h-[750px]">
@@ -570,8 +738,8 @@ export default function DoctorDashboard() {
                       {sess.complaintTitle}
                     </div>
 
-                    <div className="flex justify-between items-center text-[11px] text-slate-500 mt-1">
-                      <span>{sess.patientDetails?.name || 'Ramesh Chandra Sharma'}</span>
+                    <div className="flex justify-between items-center text-[11px] text-slate-500 mt-0.5">
+                      <span className="font-bold text-slate-800">{sess.patientDetails?.name || 'Ramesh Chandra Sharma'}</span>
                       <div className="flex items-center gap-1">
                         {isAyush && (
                           <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
@@ -584,6 +752,16 @@ export default function DoctorDashboard() {
                           </span>
                         )}
                       </div>
+                    </div>
+
+                    {/* Assigned Physician & Room Line */}
+                    <div className="flex justify-between items-center text-[10px] bg-slate-100/80 px-2 py-1 rounded-md mt-0.5 border border-slate-200/60">
+                      <span className="font-semibold text-blue-900 truncate">
+                        🩺 {sess.assignedDoctor?.name || 'Duty Physician'} ({sess.department || 'General'})
+                      </span>
+                      <span className="font-mono font-bold text-slate-700 shrink-0">
+                        Room {sess.assignedDoctor?.roomNumber || '104'}
+                      </span>
                     </div>
                   </button>
                 );
@@ -751,28 +929,52 @@ export default function DoctorDashboard() {
                     {isSavingEdits ? 'Saving...' : saveEditFeedback ? 'Saved ✓' : 'Save Edits'}
                   </button>
 
-                  <button
-                    onClick={handleCallPatient}
-                    className={`px-3.5 py-2 text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer ${
-                      isCallingAudio
-                        ? 'bg-amber-500 text-slate-950 animate-bounce'
-                        : 'bg-blue-700 hover:bg-blue-800 text-white'
-                    }`}
-                    title="Play chime and vocalize patient call"
-                  >
-                    <Volume2 className="w-4 h-4 text-amber-300" />
-                    {isCallingAudio ? 'Calling...' : 'Call Patient'}
-                  </button>
+                  {/* Lifecycle Action Buttons based on Session Status */}
+                  {((currentSession.status || '').toUpperCase() === 'WAITING' || (currentSession.status || '').toUpperCase() === 'WAITING_OPD' || (currentSession.status || '').toUpperCase() === 'TRIAGE_URGENT') && (
+                    <button
+                      onClick={handleCallPatient}
+                      className={`px-3.5 py-2 text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer ${
+                        isCallingAudio
+                          ? 'bg-amber-500 text-slate-950 animate-bounce'
+                          : 'bg-blue-700 hover:bg-blue-800 text-white'
+                      }`}
+                      title="Play chime and vocalize patient call"
+                    >
+                      <Volume2 className="w-4 h-4 text-amber-300" />
+                      {isCallingAudio ? 'Calling...' : 'Call Patient'}
+                    </button>
+                  )}
 
-                  <button
-                    onClick={handleFinalizeAndPushToEmr}
-                    disabled={isPushingEmr}
-                    className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                    title="Finalize dossier and push FHIR payload to Hospital EMR"
-                  >
-                    <Send className={`w-4 h-4 text-amber-300 ${isPushingEmr ? 'animate-spin' : ''}`} />
-                    {isPushingEmr ? 'Pushing to EMR...' : 'Finalize & Push to EMR'}
-                  </button>
+                  {(currentSession.status || '').toUpperCase() === 'CALLED' && (
+                    <>
+                      <button
+                        onClick={handleStartConsultation}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer animate-pulse"
+                        title="Begin active OPD consultation"
+                      >
+                        <ChevronRight className="w-4 h-4 text-amber-300" /> Start Consultation
+                      </button>
+                      <button
+                        onClick={handleCallPatient}
+                        className="px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-900 border border-blue-300 text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
+                        title="Re-announce patient call"
+                      >
+                        <Volume2 className="w-3.5 h-3.5 text-blue-700" /> Re-announce
+                      </button>
+                    </>
+                  )}
+
+                  {(currentSession.status || '').toUpperCase() === 'IN_CONSULTATION' && (
+                    <button
+                      onClick={handleFinalizeAndPushToEmr}
+                      disabled={isPushingEmr}
+                      className="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      title="Finalize dossier and push FHIR payload to Hospital EMR"
+                    >
+                      <Send className={`w-4 h-4 text-amber-300 ${isPushingEmr ? 'animate-spin' : ''}`} />
+                      {isPushingEmr ? 'Pushing to EMR...' : 'Finalize & Push to EMR'}
+                    </button>
+                  )}
 
                   <button
                     onClick={() => setShowFhirModal(true)}
@@ -1163,5 +1365,13 @@ export default function DoctorDashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DoctorDashboard(props) {
+  return (
+    <DoctorDashboardErrorBoundary>
+      <DoctorDashboardMain {...props} />
+    </DoctorDashboardErrorBoundary>
   );
 }

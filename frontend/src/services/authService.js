@@ -27,6 +27,19 @@ function handleAuthResponse(data, isStaff = false) {
   }
 }
 
+// Wrapper for robust fetch error handling
+async function apiFetch(url, options) {
+  try {
+    const res = await fetch(url, options);
+    return res;
+  } catch (err) {
+    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      throw new Error('Network error: Unable to connect to the server. Please check if the backend is running.');
+    }
+    throw err;
+  }
+}
+
 /**
  * 1. Patient Sign Up (New Registration)
  */
@@ -35,7 +48,7 @@ export async function signupPatient({ name, mobile, password, age, gender, addre
   if (!mobile || mobile.trim().length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
   if (!password || password.trim().length < 4) throw new Error('Please choose a password with at least 4 characters.');
 
-  const res = await fetch(`${API_BASE}/auth/signup`, {
+  const res = await apiFetch(`${API_BASE}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -63,7 +76,7 @@ export async function loginPatient({ mobile, password }) {
   if (!mobile || mobile.trim().length < 10) throw new Error('Please enter your 10-digit registered mobile number.');
   if (!password) throw new Error('Please enter your password.');
 
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await apiFetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -87,7 +100,7 @@ export async function staffLogin(username, password) {
   if (!username) throw new Error('Please enter your username.');
   if (!password) throw new Error('Please enter your password.');
 
-  const res = await fetch(`${API_BASE}/auth/staff-login`, {
+  const res = await apiFetch(`${API_BASE}/auth/staff-login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -105,6 +118,10 @@ export async function staffLogin(username, password) {
     }
     localStorage.setItem('staffUser', JSON.stringify(profile));
     return data;
+  }
+  
+  if (res.status === 401 && data.message === 'Invalid credentials') {
+    throw new Error('Authentication failed: Invalid credentials provided.');
   }
   throw new Error(data.message || 'Login failed. Please check your credentials.');
 }
@@ -144,18 +161,22 @@ export function getSavedStaffUser() {
  * Fetch fresh Staff Profile from DB using staff JWT
  */
 export async function fetchStaffProfile() {
-  const res = await fetch(`${API_BASE}/auth/staff-profile`, {
-    headers: getAuthHeaders()
-  });
-  if (res.ok) {
-    const data = await res.json();
-    if (data.staffProfile) {
-      localStorage.setItem('staffUser', JSON.stringify(data.staffProfile));
-      if (data.staffProfile.role) {
-        localStorage.setItem('staffRole', data.staffProfile.role);
+  try {
+    const res = await apiFetch(`${API_BASE}/auth/staff-profile`, {
+      headers: getAuthHeaders()
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.staffProfile) {
+        localStorage.setItem('staffUser', JSON.stringify(data.staffProfile));
+        if (data.staffProfile.role) {
+          localStorage.setItem('staffRole', data.staffProfile.role);
+        }
+        return data.staffProfile;
       }
-      return data.staffProfile;
     }
+  } catch (err) {
+    console.warn('Network error while fetching staff profile:', err);
   }
   return getSavedStaffUser();
 }
@@ -164,7 +185,7 @@ export async function fetchStaffProfile() {
  * 3. Fetch All Patients for Admin Panel Directory
  */
 export async function fetchAdminPatients() {
-  const res = await fetch(`${API_BASE}/admin/patients`, {
+  const res = await apiFetch(`${API_BASE}/admin/patients`, {
     headers: getAuthHeaders()
   });
   const data = await res.json();
@@ -178,7 +199,7 @@ export async function fetchAdminPatients() {
  * 4. Update Patient Profile (Admin or Edit Action)
  */
 export async function updateAdminPatient(id, updateData) {
-  const res = await fetch(`${API_BASE}/admin/patients/${id}`, {
+  const res = await apiFetch(`${API_BASE}/admin/patients/${id}`, {
     method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify(updateData)
@@ -195,7 +216,7 @@ export async function updateAdminPatient(id, updateData) {
  * 5. Delete Patient Profile (Admin Action)
  */
 export async function deleteAdminPatient(id) {
-  const res = await fetch(`${API_BASE}/admin/patients/${id}`, {
+  const res = await apiFetch(`${API_BASE}/admin/patients/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
@@ -211,7 +232,7 @@ export async function deleteAdminPatient(id) {
  * 6. Hospital EMR FHIR Bundle Push
  */
 export async function pushFhirToHospitalEmr({ sessionId, tokenNumber, fhirBundle }) {
-  const res = await fetch(`${API_BASE}/his/push`, {
+  const res = await apiFetch(`${API_BASE}/his/push`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ sessionId, tokenNumber, fhirBundle })

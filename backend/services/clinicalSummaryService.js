@@ -31,7 +31,7 @@ function synthesizeClinicalSectionsDeterministic(session, language = 'en') {
   const doc = typeof digitizedDocument === 'string' ? JSON.parse(digitizedDocument || '{}') : digitizedDocument;
   const ayush = typeof ayushAssessment === 'string' ? JSON.parse(ayushAssessment || '{}') : ayushAssessment;
 
-  const patientName = patientDetails?.name || 'Ramesh Chandra Sharma';
+  const patientName = patientDetails?.name || 'Walk-in Patient';
   const age = patientDetails?.age ? `${patientDetails.age}-year-old` : 'Adult';
   const gender = patientDetails?.gender ? patientDetails.gender.toLowerCase() : 'individual';
 
@@ -205,7 +205,7 @@ async function generateSynthesizedDossier(session, language = 'en') {
     `;
 
     const prompt = `
-      Patient Metadata: Name: ${session.patientDetails?.name || 'Ramesh Chandra Sharma'}, Age: ${session.patientDetails?.age || 68}, Gender: ${session.patientDetails?.gender || 'Male'}
+      Patient Metadata: Name: ${session.patientDetails?.name || 'Walk-in Patient'}, Age: ${session.patientDetails?.age || 30}, Gender: ${session.patientDetails?.gender || 'Male'}
       Chief Complaint: ${session.complaintTitle} (${session.complaintId})
       Conversational Answers: ${JSON.stringify(session.answers || [])}
       AYUSH Assessment Data: ${session.ayushAssessment ? JSON.stringify(session.ayushAssessment) : 'None'}

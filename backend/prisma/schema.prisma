@@ -20,26 +20,39 @@ model Patient {
 }
 
 model StaffUser {
-  id        String   @id @default(cuid())
-  username  String   @unique
-  password  String
-  role      String   @default("DOCTOR") // DOCTOR | ADMIN | NURSE
-  name      String
-  createdAt DateTime @default(now())
+  id                 String    @id @default(cuid())
+  username           String    @unique
+  password           String
+  role               String    @default("DOCTOR") // DOCTOR | ADMIN | NURSE
+  name               String
+  specialization     String    @default("General Medicine")
+  roomNumber         String    @default("104")
+  availabilityStatus String    @default("AVAILABLE") // AVAILABLE | BUSY | OFFLINE
+  lastAssignedAt     DateTime?
+  createdAt          DateTime  @default(now())
+  assignedSessions   Session[] @relation("AssignedDoctor")
 }
 
 model Session {
-  id                String             @id
-  tokenNumber       String             @unique
-  submittedAt       DateTime           @default(now())
-  complaintId       String
-  complaintTitle    String
-  language          String             @default("English")
-  consentStatus     String             @default("GRANTED")
-  consentTimestamp  DateTime           @default(now())
-  status            String             @default("WAITING_OPD") // WAITING_OPD | TRIAGE_URGENT | COMPLETED | CALLED
-  answers           String             // JSON stringified array of Q&A responses
-  redFlagsTriggered String             @default("[]") // JSON stringified array
+  id                     String             @id
+  tokenNumber            String             @unique
+  submittedAt            DateTime           @default(now())
+  complaintId            String
+  complaintTitle         String
+  department             String?            @default("General Medicine")
+  priority               String             @default("NORMAL") // NORMAL | HIGH | URGENT
+  assignedDoctorId       String?
+  assignedDoctor         StaffUser?         @relation("AssignedDoctor", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+  language               String             @default("English")
+  consentStatus          String             @default("GRANTED")
+  consentTimestamp       DateTime           @default(now())
+  status                 String             @default("WAITING") // WAITING | CALLED | IN_CONSULTATION | COMPLETED
+  calledAt               DateTime?
+  calledBy               String?
+  consultationStartedAt  DateTime?
+  completedAt            DateTime?
+  answers                String             // JSON stringified array of Q&A responses
+  redFlagsTriggered      String             @default("[]") // JSON stringified array
   ayushAssessment        String?            // JSON stringified AYUSH dosha/agni data
   editedByPhysician      Boolean            @default(false)
   physicianEditedSummary String?            // JSON stringified physician accepted/amended sections

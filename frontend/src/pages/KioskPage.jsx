@@ -10,7 +10,7 @@ import {
 import { speakText, cancelSpeech, startListening, isSTTSupported, getSpeechProvider, getRecoveryPrompt } from '../services/speechService.js';
 import AudioWaveformVisualizer from '../components/AudioWaveformVisualizer.jsx';
 import { checkRedFlagCondition } from '../services/redFlagDetector.js';
-import { extractDocumentWithDocAI, SAMPLE_DOCUMENTS, getLabFlagBadgeClass } from '../services/docAiService.js';
+import { extractDocumentWithDocAI, getLabFlagBadgeClass } from '../services/docAiService.js';
 import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../services/ayushFlowData.js';
 import { 
   loginPatient, 
@@ -121,7 +121,7 @@ export default function KioskPage() {
   const [submittedSession, setSubmittedSession] = useState(null);
   const [sessionId] = useState(() => `sess_${Date.now()}`);
 
-  // Fetch dialogue flows & clear staff session on mount
+  // Fetch dialogue flows & clear staff/doctor session on mount
   useEffect(() => {
     clearStaffSession();
 
@@ -344,6 +344,11 @@ export default function KioskPage() {
       );
     } catch (err) {
       console.error('[DocAI] Extraction failed:', err);
+      narrate(
+        selectedLanguage === 'हिंदी'
+          ? 'माफ़ करें, दस्तावेज़ को स्कैन करने में कोई समस्या हुई।'
+          : 'Sorry, there was an issue scanning your document.'
+      );
     } finally {
       setIsOcrProcessing(false);
     }
@@ -415,10 +420,21 @@ export default function KioskPage() {
         if (transcript && transcript.trim()) {
           setVoiceText(transcript);
           setShowRecoveryBanner(false);
+          
+          if (isFinal) {
+            setIsListening(false);
+            setAudioLevel(0);
+            
+            // Auto-submit the voice response to create a continuous conversational flow
+            // Check which step we are currently on to route to the correct handler
+            if (step === 'questions') {
+              handleAnswerQuestion(null, transcript.trim());
+            } else if (step === 'ayush_questions') {
+              handleAnswerAyushQuestion(null, transcript.trim());
+            }
+          }
         } else if (isFinal && !transcript) {
           setShowRecoveryBanner(true);
-        }
-        if (isFinal) {
           setIsListening(false);
           setAudioLevel(0);
         }
@@ -1593,35 +1609,6 @@ export default function KioskPage() {
                   </button>
                 </div>
 
-                {/* 1-Click Demos */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
-                    Or Test with 1-Click Relevant Diagnostic Records:
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {SAMPLE_DOCUMENTS.map((doc) => (
-                      <button
-                        key={doc.id}
-                        onClick={() => handleProcessDocument(doc.fileName, doc.type)}
-                        className="p-3.5 bg-white border border-slate-200 hover:border-purple-500 rounded-xl text-left shadow-sm hover:shadow transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-purple-50 text-purple-700 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                            {doc.type === 'orthopedic_rheumatology_report' ? <Bone className="w-5 h-5 text-purple-600" /> : doc.type === 'lab_report' ? <FlaskConical className="w-5 h-5" /> : <Pill className="w-5 h-5" />}
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-slate-900 block">{doc.title}</span>
-                            <span className="text-[11px] text-slate-500 line-clamp-1">{doc.description}</span>
-                          </div>
-                        </div>
-                        <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 flex-shrink-0">
-                          Load Demo
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div className="pt-4 border-t border-slate-100 flex justify-end">
                   <button
                     onClick={handleSkipDocumentAndProceed}
@@ -2084,6 +2071,25 @@ export default function KioskPage() {
                 <span className="text-xs font-bold bg-blue-100 text-blue-800 px-3 py-1 rounded-lg">
                   {submittedSession?.complaintTitle}
                 </span>
+              </div>
+
+              {/* Assigned Physician & Consultation Room Card */}
+              <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs text-slate-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Assigned Physician</span>
+                  <strong className="text-sm font-extrabold text-blue-900 block">
+                    {submittedSession?.assignedDoctor?.name || 'Duty Physician'}
+                  </strong>
+                  <span className="text-slate-600 font-semibold">
+                    {submittedSession?.assignedDoctor?.specialization || submittedSession?.department || 'General Medicine'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Consultation Room</span>
+                  <span className="inline-block bg-blue-700 text-white font-mono font-black text-sm px-2.5 py-1 rounded-lg shadow-xs">
+                    Room {submittedSession?.assignedDoctor?.roomNumber || '104'}
+                  </span>
+                </div>
               </div>
 
               {submittedSession?.digitizedDocument && (

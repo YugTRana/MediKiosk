@@ -72,9 +72,9 @@ export function convertSessionToFhirR4Bundle(session) {
   // 2. Practitioner Resource
   const practitionerResource = {
     resourceType: 'Practitioner',
-    id: 'practitioner-104',
-    name: [{ text: 'Dr. Sunita Rao' }],
-    qualification: [{ code: { text: 'MD (General & Integrated Medicine)' } }]
+    id: `practitioner-${session.assignedDoctorId || '104'}`,
+    name: [{ text: session.assignedDoctor?.name || 'Dr. Asha Sharma' }],
+    qualification: [{ code: { text: `MD (${session.assignedDoctor?.specialization || session.department || 'General Medicine'})` } }]
   };
 
   // 3. Condition Resources (Primary Chief Complaint + Past Diagnoses)

@@ -248,9 +248,10 @@ async function loginStaff({ username, password }) {
     username: staff.username,
     name: staff.name,
     role: staff.role,
-    specialization: staff.specialization || 'General & Integrated Medicine',
+    specialization: staff.specialization || 'General Medicine',
     qualification: staff.qualification || 'MD',
     roomNumber: staff.roomNumber || '104',
+    availabilityStatus: staff.availabilityStatus || 'AVAILABLE',
     token
   };
 }

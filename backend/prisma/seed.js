@@ -8,31 +8,31 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 [MediKiosk DB] Seeding database...');
 
-  // 1. Seed Verified ABHA Patients
+  // 1. Seed Verified Genuine Patients
   const patients = [
     {
-      name: 'Ramesh Chandra Sharma',
-      gender: 'Male',
-      age: 68,
+      name: 'Nidhi Kharva',
+      gender: 'Female',
+      age: 28,
       mobile: '9876543210',
       password: await bcrypt.hash('password123', 10),
-      address: 'House 42, Sector 9, Jaipur, Rajasthan'
+      address: 'Plot 42, Civil Lines, Mumbai'
     },
     {
-      name: 'Sunita Devi',
-      gender: 'Female',
-      age: 62,
+      name: 'Vishal Kharva',
+      gender: 'Male',
+      age: 32,
       mobile: '9845211928',
       password: await bcrypt.hash('password123', 10),
-      address: 'Plot 14, Gandhi Nagar, Bhopal, MP'
+      address: 'Sector 5, Bandra West, Mumbai'
     },
     {
-      name: 'Amit Kumar Verma',
+      name: 'Pratham Kharva',
       gender: 'Male',
-      age: 34,
+      age: 22,
       mobile: '9711233455',
       password: await bcrypt.hash('password123', 10),
-      address: 'Sector 62, Noida, UP'
+      address: 'Linking Road, Santa Cruz, Mumbai'
     }
   ];
 
@@ -43,7 +43,7 @@ async function main() {
       create: p
     });
   }
-  console.log(`✅ Seeded ${patients.length} ABHA patient accounts.`);
+  console.log(`✅ Seeded ${patients.length} genuine patient accounts.`);
 
   // 2. Seed Chief Complaints & Dialogue Flows from mockData/dialogueFlows.json if present
   // (Currently models ChiefComplaint, Question, Option are missing from schema, relies on fallback)
@@ -118,32 +118,72 @@ async function main() {
   }
   */
 
-  // 3. Seed Default Staff Users (Phase 1)
+  // 3. Seed Default Staff Users
   const hashedAdminPassword = await bcrypt.hash('admin123', 10);
   const hashedDoctorPassword = await bcrypt.hash('doctor123', 10);
+  const hashedRajeshPassword = await bcrypt.hash('Doctor@123', 10);
   
   await prisma.staffUser.upsert({
     where: { username: 'admin1' },
-    update: {},
+    update: {
+      name: 'System Admin',
+      role: 'ADMIN',
+      specialization: 'General Medicine',
+      roomNumber: '100',
+      availabilityStatus: 'AVAILABLE'
+    },
     create: {
       username: 'admin1',
       password: hashedAdminPassword,
       role: 'ADMIN',
-      name: 'System Admin'
+      name: 'System Admin',
+      specialization: 'General Medicine',
+      roomNumber: '100',
+      availabilityStatus: 'AVAILABLE'
     }
   });
 
   await prisma.staffUser.upsert({
     where: { username: 'doctor1' },
-    update: {},
+    update: {
+      name: 'Dr. Asha Sharma',
+      role: 'DOCTOR',
+      specialization: 'Cardiology',
+      roomNumber: '104',
+      availabilityStatus: 'AVAILABLE'
+    },
     create: {
       username: 'doctor1',
       password: hashedDoctorPassword,
       role: 'DOCTOR',
-      name: 'Dr. Asha Sharma'
+      name: 'Dr. Asha Sharma',
+      specialization: 'Cardiology',
+      roomNumber: '104',
+      availabilityStatus: 'AVAILABLE'
     }
   });
-  console.log(`✅ Seeded default Staff Users (admin1, doctor1).`);
+
+  await prisma.staffUser.upsert({
+    where: { username: 'dr.rajesh' },
+    update: {
+      name: 'Dr. Rajesh Gupta',
+      role: 'DOCTOR',
+      specialization: 'General Medicine',
+      roomNumber: '104',
+      availabilityStatus: 'AVAILABLE'
+    },
+    create: {
+      username: 'dr.rajesh',
+      password: hashedRajeshPassword,
+      role: 'DOCTOR',
+      name: 'Dr. Rajesh Gupta',
+      specialization: 'General Medicine',
+      roomNumber: '104',
+      availabilityStatus: 'AVAILABLE'
+    }
+  });
+
+  console.log(`✅ Seeded default Staff Users (admin1, doctor1, dr.rajesh).`);
 
   console.log('🎉 [MediKiosk DB] Seeding completed successfully.');
 }

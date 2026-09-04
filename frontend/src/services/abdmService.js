@@ -5,37 +5,37 @@
 
 export const SAMPLE_ABHA_ACCOUNTS = [
   {
-    id: 'ramesh_sharma',
-    name: 'Ramesh Chandra Sharma',
+    id: 'nidhi_kharva',
+    name: 'Nidhi Kharva',
     abhaNumber: '91-8472-1029-4821',
-    abhaAddress: 'ramesh.sharma@abdm',
-    gender: 'Male',
-    age: 68,
-    mobile: '+91 98765 43210',
-    address: 'House 42, Sector 9, Jaipur, Rajasthan',
-    badge: 'Senior Citizen • Chronic Care'
-  },
-  {
-    id: 'sunita_devi',
-    name: 'Sunita Devi',
-    abhaNumber: '91-3829-1928-4019',
-    abhaAddress: 'sunita.devi@abdm',
+    abhaAddress: 'nidhi.kharva@abdm',
     gender: 'Female',
-    age: 62,
-    mobile: '+91 98452 11928',
-    address: 'Plot 14, Gandhi Nagar, Bhopal, MP',
-    badge: 'Hypertension Follow-Up'
+    age: 28,
+    mobile: '+91 98765 43210',
+    address: 'Plot 42, Civil Lines, Mumbai',
+    badge: 'OPD Regular'
   },
   {
-    id: 'amit_verma',
-    name: 'Amit Kumar Verma',
-    abhaNumber: '91-5555-1234-8890',
-    abhaAddress: 'amit.verma@abdm',
+    id: 'vishal_kharva',
+    name: 'Vishal Kharva',
+    abhaNumber: '91-3829-1928-4019',
+    abhaAddress: 'vishal.kharva@abdm',
     gender: 'Male',
-    age: 34,
+    age: 32,
+    mobile: '+91 98452 11928',
+    address: 'Sector 5, Bandra West, Mumbai',
+    badge: 'OPD General'
+  },
+  {
+    id: 'pratham_kharva',
+    name: 'Pratham Kharva',
+    abhaNumber: '91-5555-1234-8890',
+    abhaAddress: 'pratham.kharva@abdm',
+    gender: 'Male',
+    age: 22,
     mobile: '+91 97112 33455',
-    address: 'Sector 62, Noida, UP',
-    badge: 'Acute Consultation'
+    address: 'Linking Road, Santa Cruz, Mumbai',
+    badge: 'Kiosk Check-in'
   }
 ];
 
