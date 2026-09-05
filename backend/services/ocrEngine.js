@@ -709,6 +709,12 @@ async function extractWithGeminiVision(buffer, mimeType, fileName) {
   "labValues": [
     { "test": "Exact test name", "value": "Measured value", "unit": "Unit", "referenceRange": "Reference range", "flag": "HIGH" | "LOW" | "NORMAL" }
   ],
+  "vitals": {
+    "bloodPressure": "string",
+    "heartRate": "number",
+    "temperature": "number",
+    "oxygenSat": "number"
+  },
   "rawText": "Complete transcription text",
   "confidenceScore": 0.99
 }`;
@@ -718,7 +724,7 @@ async function extractWithGeminiVision(buffer, mimeType, fileName) {
       : (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       contents: [
         {
           role: 'user',

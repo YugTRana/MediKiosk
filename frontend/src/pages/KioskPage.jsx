@@ -5,13 +5,14 @@ import {
   Sparkles, ShieldAlert, Upload, Camera, FileText, FlaskConical, Check, 
   RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight,
   ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3,
-  Stethoscope, Settings, WifiOff, Wifi
+  Stethoscope, Settings, WifiOff, Wifi, ClipboardList
 } from 'lucide-react';
 import { speakText, cancelSpeech, startListening, isSTTSupported, getSpeechProvider, getRecoveryPrompt } from '../services/speechService.js';
 import AudioWaveformVisualizer from '../components/AudioWaveformVisualizer.jsx';
 import { checkRedFlagCondition } from '../services/redFlagDetector.js';
-import { extractDocumentWithDocAI, SAMPLE_DOCUMENTS, getLabFlagBadgeClass } from '../services/docAiService.js';
+import { extractDocumentWithDocAI, getLabFlagBadgeClass } from '../services/docAiService.js';
 import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../services/ayushFlowData.js';
+import html2pdf from 'html2pdf.js';
 import { 
   loginPatient, 
   signupPatient, 
@@ -120,6 +121,47 @@ export default function KioskPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedSession, setSubmittedSession] = useState(null);
   const [sessionId] = useState(() => `sess_${Date.now()}`);
+
+  // Patient Care Plan State
+  const [prescriptionToken, setPrescriptionToken] = useState('');
+  const [carePlanData, setCarePlanData] = useState(null);
+  const [isFetchingCarePlan, setIsFetchingCarePlan] = useState(false);
+  const [carePlanError, setCarePlanError] = useState('');
+
+  const fetchCarePlan = async (e) => {
+    e.preventDefault();
+    if (!prescriptionToken) return;
+    setIsFetchingCarePlan(true);
+    setCarePlanError('');
+    try {
+      const res = await fetch(`http://localhost:3000/api/sessions/token/${prescriptionToken.trim().toUpperCase()}/care-plan`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setCarePlanData(data);
+        setStep('view_care_plan');
+      } else {
+        setCarePlanError(data.message || data.error || 'Failed to fetch care plan');
+      }
+    } catch (err) {
+      setCarePlanError('Network error connecting to server');
+    } finally {
+      setIsFetchingCarePlan(false);
+    }
+  };
+
+  const handleDownloadPDF = () => {
+    const element = document.getElementById('care-plan-content');
+    if (element) {
+      const opt = {
+        margin:       0.5,
+        filename:     `Prescription_${prescriptionToken.toUpperCase()}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      };
+      html2pdf().set(opt).from(element).save();
+    }
+  };
 
   // Fetch dialogue flows & clear staff session on mount
   useEffect(() => {
@@ -344,6 +386,11 @@ export default function KioskPage() {
       );
     } catch (err) {
       console.error('[DocAI] Extraction failed:', err);
+      narrate(
+        selectedLanguage === 'हिंदी'
+          ? 'माफ़ करें, दस्तावेज़ को स्कैन करने में कोई समस्या हुई।'
+          : 'Sorry, there was an issue scanning your document.'
+      );
     } finally {
       setIsOcrProcessing(false);
     }
@@ -415,10 +462,21 @@ export default function KioskPage() {
         if (transcript && transcript.trim()) {
           setVoiceText(transcript);
           setShowRecoveryBanner(false);
+          
+          if (isFinal) {
+            setIsListening(false);
+            setAudioLevel(0);
+            
+            // Auto-submit the voice response to create a continuous conversational flow
+            // Check which step we are currently on to route to the correct handler
+            if (step === 'questions') {
+              handleAnswerQuestion(null, transcript.trim());
+            } else if (step === 'ayush_questions') {
+              handleAnswerAyushQuestion(null, transcript.trim());
+            }
+          }
         } else if (isFinal && !transcript) {
           setShowRecoveryBanner(true);
-        }
-        if (isFinal) {
           setIsListening(false);
           setAudioLevel(0);
         }
@@ -886,10 +944,21 @@ export default function KioskPage() {
       {step === 'patient_auth' && (
         <main className="max-w-4xl mx-auto w-full flex-1 flex flex-col gap-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm flex flex-col gap-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
+              <div className="text-left">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 text-xs font-bold rounded-full mb-2 border border-blue-200">
+                  <UserCheck className="w-3.5 h-3.5 text-blue-600" /> Patient Access Portal
+                </span>
+              </div>
+              <button
+                onClick={() => setStep('enter_token')}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer text-sm"
+              >
+                <ClipboardList className="w-4 h-4" />
+                View My Prescription
+              </button>
+            </div>
             <div className="text-center max-w-xl mx-auto">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-800 text-xs font-bold rounded-full mb-2 border border-blue-200">
-                <UserCheck className="w-3.5 h-3.5 text-blue-600" /> Patient Access Portal
-              </span>
               <h2 className="text-2xl font-black text-slate-900">
                 {selectedLanguage === 'हिंदी' ? 'रोगी लॉगिन और पंजीकरण' : 'Patient Sign In & Registration'}
               </h2>
@@ -1593,35 +1662,6 @@ export default function KioskPage() {
                   </button>
                 </div>
 
-                {/* 1-Click Demos */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
-                    Or Test with 1-Click Relevant Diagnostic Records:
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {SAMPLE_DOCUMENTS.map((doc) => (
-                      <button
-                        key={doc.id}
-                        onClick={() => handleProcessDocument(doc.fileName, doc.type)}
-                        className="p-3.5 bg-white border border-slate-200 hover:border-purple-500 rounded-xl text-left shadow-sm hover:shadow transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-purple-50 text-purple-700 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                            {doc.type === 'orthopedic_rheumatology_report' ? <Bone className="w-5 h-5 text-purple-600" /> : doc.type === 'lab_report' ? <FlaskConical className="w-5 h-5" /> : <Pill className="w-5 h-5" />}
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-slate-900 block">{doc.title}</span>
-                            <span className="text-[11px] text-slate-500 line-clamp-1">{doc.description}</span>
-                          </div>
-                        </div>
-                        <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 flex-shrink-0">
-                          Load Demo
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div className="pt-4 border-t border-slate-100 flex justify-end">
                   <button
                     onClick={handleSkipDocumentAndProceed}
@@ -2118,6 +2158,168 @@ export default function KioskPage() {
             >
               <RefreshCw className="w-5 h-5" /> Start New Patient Session
             </button>
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ENTER TOKEN FOR PRESCRIPTION                                              */}
+      {/* ========================================================================= */}
+      {step === 'enter_token' && (
+        <main className="max-w-xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 text-center">
+          <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-lg w-full flex flex-col items-center gap-5">
+            <ClipboardList className="w-12 h-12 text-purple-600 mb-2" />
+            <h2 className="text-2xl font-black text-slate-900">View Patient Care Plan</h2>
+            <p className="text-sm text-slate-600">Enter your Token Number (e.g. K-101) to securely fetch your doctor's prescription and dietary advice.</p>
+            
+            <form onSubmit={fetchCarePlan} className="w-full flex flex-col gap-4 mt-2">
+              <input
+                type="text"
+                placeholder="Enter Token (K-XXX)"
+                value={prescriptionToken}
+                onChange={(e) => setPrescriptionToken(e.target.value)}
+                className="w-full p-4 text-center text-xl font-bold bg-slate-50 border-2 border-slate-300 rounded-2xl focus:outline-none focus:border-purple-600 uppercase"
+                required
+              />
+              {carePlanError && (
+                <div className="bg-red-50 text-red-700 text-sm font-semibold p-3 rounded-xl border border-red-200">
+                  {carePlanError}
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={isFetchingCarePlan || !prescriptionToken}
+                className="w-full py-4 bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-base rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isFetchingCarePlan ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                {isFetchingCarePlan ? 'Fetching Records...' : 'Access My Prescription'}
+              </button>
+              <button
+                type="button"
+                onClick={handleRestart}
+                className="mt-2 text-sm text-slate-500 font-bold hover:text-slate-800"
+              >
+                Back to Home
+              </button>
+            </form>
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VIEW CARE PLAN & PRESCRIPTION                                             */}
+      {/* ========================================================================= */}
+      {step === 'view_care_plan' && carePlanData && (
+        <main className="max-w-4xl mx-auto w-full flex-1 flex flex-col py-6 gap-6">
+          <div className="flex justify-end gap-2 px-2">
+            <button
+              onClick={handleDownloadPDF}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-xl transition-all text-sm flex items-center gap-2 shadow-sm"
+            >
+              <FileText className="w-4 h-4" /> Download PDF
+            </button>
+            <button
+              onClick={handleRestart}
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2 px-6 rounded-xl transition-all text-sm shadow-sm"
+            >
+              Close
+            </button>
+          </div>
+
+          <div id="care-plan-content" className="bg-white border border-slate-200 rounded-lg p-10 md:p-14 shadow-sm flex flex-col gap-6 font-serif relative">
+            {/* Header: Clinic/Hospital Info */}
+            <div className="flex justify-between items-start border-b-2 border-slate-800 pb-6 mb-2">
+              <div className="flex flex-col">
+                <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase">MediKiosk Health</h1>
+                <p className="text-sm text-slate-600 font-medium">123 Wellness Avenue, Health City</p>
+                <p className="text-sm text-slate-600 font-medium">Phone: +1 800 123 4567</p>
+              </div>
+              <div className="text-right flex flex-col">
+                <h2 className="text-xl font-bold text-slate-800">{carePlanData.doctorName || 'Dr. Sunita Rao'}</h2>
+                <p className="text-sm text-slate-500 italic">Consulting Physician</p>
+              </div>
+            </div>
+
+            {/* Patient Details & Date */}
+            <div className="flex justify-between items-center bg-slate-50 p-4 rounded-md border border-slate-100">
+              <div className="flex flex-col gap-1">
+                <div className="flex gap-2 text-sm">
+                  <span className="font-bold text-slate-700">Patient Name:</span>
+                  <span className="text-slate-900">{carePlanData.patientName || 'Unknown Patient'}</span>
+                </div>
+                <div className="flex gap-2 text-sm">
+                  <span className="font-bold text-slate-700">Token Number:</span>
+                  <span className="text-slate-900 uppercase font-mono bg-slate-200 px-1.5 rounded">{prescriptionToken}</span>
+                </div>
+              </div>
+              <div className="flex gap-2 text-sm">
+                <span className="font-bold text-slate-700">Date:</span>
+                <span className="text-slate-900">{carePlanData.date || new Date().toLocaleDateString()}</span>
+              </div>
+            </div>
+
+            {/* Rx Symbol */}
+            <div className="mt-4 mb-2 text-5xl font-serif text-slate-800 select-none">
+              ℞
+            </div>
+
+            {/* Medicines List */}
+            {carePlanData.carePlan?.medicines && carePlanData.carePlan.medicines.length > 0 && (
+              <div className="mb-6">
+                <ul className="space-y-4 pl-4">
+                  {carePlanData.carePlan.medicines.map((med, idx) => (
+                    <li key={idx} className="flex flex-col">
+                      <strong className="text-slate-900 text-lg">{idx + 1}. {med.name}</strong>
+                      <div className="flex items-center gap-4 text-sm text-slate-700 mt-1 pl-4">
+                        <span className="font-medium bg-slate-100 px-2 py-0.5 rounded border border-slate-200">Dosage: {med.dosage}</span>
+                        <span className="italic text-slate-600">Sig: {med.instructions}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4 border-t border-slate-200 pt-6">
+              {/* Dietary Advice */}
+              {carePlanData.carePlan?.dietaryAdvice && carePlanData.carePlan.dietaryAdvice.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-3 border-b border-slate-200 pb-1">Dietary Advice</h3>
+                  <ul className="space-y-1.5 list-disc pl-4">
+                    {carePlanData.carePlan.dietaryAdvice.map((advice, idx) => (
+                      <li key={idx} className="text-sm text-slate-700">{advice}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* General Care Tips */}
+              {carePlanData.carePlan?.careTips && carePlanData.carePlan.careTips.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest mb-3 border-b border-slate-200 pb-1">General Care & Recovery</h3>
+                  <ul className="space-y-1.5 list-disc pl-4">
+                    {carePlanData.carePlan.careTips.map((tip, idx) => (
+                      <li key={idx} className="text-sm text-slate-700">{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Doctor Signature Block */}
+            <div className="mt-16 flex justify-end">
+              <div className="text-center w-48">
+                <div className="border-b border-slate-400 mb-2 h-10"></div>
+                <p className="font-bold text-slate-800 text-sm">Signature</p>
+                <p className="text-xs text-slate-500 mt-1">{carePlanData.doctorName || 'Dr. Sunita Rao'}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Digitally signed & generated via MediKiosk</p>
+              </div>
+            </div>
+            
+            {/* Footer watermark or strict instruction */}
+            <div className="absolute bottom-4 left-0 right-0 text-center opacity-40 select-none pointer-events-none">
+                <p className="text-[10px] font-sans text-slate-400">This is a system generated document based on doctor's consultation.</p>
+            </div>
           </div>
         </main>
       )}

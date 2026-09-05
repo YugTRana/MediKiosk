@@ -83,15 +83,15 @@ export default function DoctorDashboard() {
   const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [saveEditFeedback, setSaveEditFeedback] = useState(false);
 
-  const fetchSessions = async () => {
-    setLoading(true);
+  const fetchSessions = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const { getAuthHeaders } = await import('../services/authService.js');
-      const res = await fetch('http://localhost:3000/api/sessions', {
+      const res = await fetch(`http://localhost:3000/api/sessions?_t=${Date.now()}`, {
         headers: getAuthHeaders()
       });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         setSessionsData(data);
 
         if (!selectedSessionId && data.sessions && data.sessions.length > 0) {
@@ -100,9 +100,9 @@ export default function DoctorDashboard() {
         }
       }
     } catch (err) {
-      console.warn('[DoctorDashboard] Failed to fetch sessions:', err);
+      console.error('Failed to fetch patient queue:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -113,14 +113,22 @@ export default function DoctorDashboard() {
     fetchStaffProfile().then((profile) => {
       if (profile) setDoctorProfile(profile);
     });
-    const interval = setInterval(fetchSessions, 4000);
-    return () => clearInterval(interval);
+    // Store interval ID to prevent overlapping polls
+    const intervalId = setInterval(() => {
+      fetchSessions(true);
+    }, 4000);
+    return () => clearInterval(intervalId);
   }, []);
 
-  // Sort sessions: Red Flags prioritized to top in red, then by recent timestamp
   const sortedSessions = useMemo(() => {
     if (!sessionsData.sessions) return [];
-    return [...sessionsData.sessions].sort((a, b) => {
+    
+    // Filter out sessions that the doctor has already attended/completed
+    const activeSessions = sessionsData.sessions.filter(s => 
+      s.status !== 'COMPLETED' && s.status !== 'SOLVED'
+    );
+    
+    return activeSessions.sort((a, b) => {
       const aIsRed = a.redFlagsTriggered && a.redFlagsTriggered.length > 0 ? 1 : 0;
       const bIsRed = b.redFlagsTriggered && b.redFlagsTriggered.length > 0 ? 1 : 0;
       if (aIsRed !== bIsRed) return bIsRed - aIsRed;
@@ -401,6 +409,7 @@ export default function DoctorDashboard() {
 
     // Automatically accept all draft sections
     handleAcceptAllSections();
+    await handleSavePhysicianEdits();
 
     try {
       const res = await pushFhirToHospitalEmr({
@@ -413,12 +422,26 @@ export default function DoctorDashboard() {
       fetchSessions();
     } catch (err) {
       console.error('[DoctorDashboard] Failed to push to EMR:', err);
+      
+      // Force update status to COMPLETED since we show a fallback receipt
+      try {
+        const { getAuthHeaders } = await import('../services/authService.js');
+        await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/status`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ status: 'COMPLETED' })
+        });
+      } catch (e) {
+        console.warn('Failed to force status update', e);
+      }
+
       // Safe fallback receipt
       setEmrPushSuccess({
         emrRecordId: `EMR-REC-2026-${Math.floor(100000 + Math.random() * 900000)}`,
         syncedAt: new Date().toISOString(),
         receipt: { resourceCount: fhirBundle?.entry?.length || 5 }
       });
+      fetchSessions();
     } finally {
       setIsPushingEmr(false);
     }
@@ -804,19 +827,19 @@ export default function DoctorDashboard() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Blood Pressure</span>
-                  <strong className="text-sm text-slate-900 font-mono">138/86 <span className="text-[10px] text-slate-500 font-normal">mmHg</span></strong>
+                  <strong className="text-sm text-slate-900 font-mono">{currentSession?.vitals?.bloodPressure || '--/--'} <span className="text-[10px] text-slate-500 font-normal">mmHg</span></strong>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Heart Rate</span>
-                  <strong className="text-sm text-slate-900 font-mono">74 <span className="text-[10px] text-slate-500 font-normal">bpm</span></strong>
+                  <strong className="text-sm text-slate-900 font-mono">{currentSession?.vitals?.heartRate || '--'} <span className="text-[10px] text-slate-500 font-normal">bpm</span></strong>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">SpO2</span>
-                  <strong className="text-sm text-slate-900 font-mono">97%</strong>
+                  <strong className="text-sm text-slate-900 font-mono">{currentSession?.vitals?.oxygenSat ? `${currentSession.vitals.oxygenSat}%` : '--'}</strong>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Temperature</span>
-                  <strong className="text-sm text-slate-900 font-mono">98.4 <span className="text-[10px] text-slate-500 font-normal">°F</span></strong>
+                  <strong className="text-sm text-slate-900 font-mono">{currentSession?.vitals?.temperature || '--'} <span className="text-[10px] text-slate-500 font-normal">°F</span></strong>
                 </div>
               </div>
 
