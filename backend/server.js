@@ -1,3 +1,5 @@
+require('dotenv').config();
+// Trigger nodemon restart
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -17,6 +19,8 @@ const {
   updatePatientProfile, 
   deletePatientProfile 
 } = require('./services/authService');
+const { sendOtp, verifyOtp } = require('./services/otpService');
+const { makePatientCall } = require('./services/twilioService');
 const { getNextQuestion } = require('./services/dialogueEngine');
 const { getAyushClarifyingQuestion } = require('./services/ayushDialogueEngine');
 const { getSpeechServiceConfig, bhashiniTranscribeAudio, bhashiniSynthesizeSpeech } = require('./services/bhashiniService');
@@ -131,14 +135,37 @@ app.get('/api/dialogue-flows', async (req, res) => {
 
 
 // ==============================================================================
+// ==============================================================================
 // 3. PATIENT AUTHENTICATION & ADMIN MANAGEMENT ENDPOINTS
 // ==============================================================================
 
+// Send OTP
+app.post('/api/auth/send-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const result = await sendOtp(email);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// Verify OTP
+app.post('/api/auth/verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const result = await verifyOtp(email, otp);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // A. Patient Sign Up (Registration)
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, mobile, password, age, gender, address } = req.body || {};
+  const { name, mobile, email, password, age, gender, address } = req.body || {};
   try {
-    const profile = await registerPatient({ name, mobile, password, age, gender, address });
+    const profile = await registerPatient({ name, mobile, email, password, age, gender, address });
     res.status(201).json({
       success: true,
       message: 'Account created successfully! You are now logged in.',
@@ -1198,7 +1225,47 @@ app.post('/api/his/push', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => 
 // ==============================================================================
 // 8. UPDATE SESSION STATUS (CALL PATIENT / COMPLETE)
 // ==============================================================================
-app.patch('/api/sessions/:id/status', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
+
+// Twilio Phone Call
+
+app.post('/api/sessions/:id/phone-call', requireRole(['DOCTOR', 'ADMIN', 'NURSE']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { doctorName, roomLabel } = req.body;
+
+    const session = await prisma.session.findUnique({
+      where: { id },
+      include: { patient: true }
+    });
+
+    if (!session || !session.patient) {
+      return res.status(404).json({ success: false, message: 'Session or patient not found' });
+    }
+
+    if (!session.patient.mobile) {
+      return res.status(400).json({ success: false, message: 'Patient has no registered mobile number' });
+    }
+
+    const patientName = session.patient.name;
+    const language = session.language || 'English';
+
+    // Initiate real phone call using Twilio
+    const result = await makePatientCall(
+      session.patient.mobile,
+      patientName,
+      doctorName || 'Duty Physician',
+      roomLabel || 'Consultation Room',
+      language
+    );
+
+    res.json(result);
+  } catch (err) {
+    console.error('❌ [Twilio Voice] Error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.patch('/api/sessions/:id/status', requireRole(['DOCTOR', 'NURSE']), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {
@@ -1342,3 +1409,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[MediKiosk Backend] Real OCR engine, ABDM Gateway & Prisma ORM database initialized.`);
   startScheduledRetentionJob();
 });
+
+

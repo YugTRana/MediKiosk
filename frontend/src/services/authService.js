@@ -43,7 +43,7 @@ async function apiFetch(url, options) {
 /**
  * 1. Patient Sign Up (New Registration)
  */
-export async function signupPatient({ name, mobile, password, age, gender, address }) {
+export async function signupPatient({ name, mobile, email, password, age, gender, address }) {
   if (!name || !name.trim()) throw new Error('Please enter your full name.');
   if (!mobile || mobile.trim().length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
   if (!password || password.trim().length < 4) throw new Error('Please choose a password with at least 4 characters.');
@@ -54,6 +54,7 @@ export async function signupPatient({ name, mobile, password, age, gender, addre
     body: JSON.stringify({
       name: name.trim(),
       mobile: mobile.trim(),
+      email: email ? email.trim() : null,
       password: password.trim(),
       age: parseInt(age, 10) || 28,
       gender: gender || 'Male',
@@ -91,6 +92,30 @@ export async function loginPatient({ mobile, password }) {
     return data.patientProfile;
   }
   throw new Error(data.message || 'Login failed. Please check your credentials.');
+}
+
+export async function sendOtp(email) {
+  if (!email) throw new Error('Email is required to send OTP.');
+  const res = await apiFetch(`${API_BASE}/auth/send-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim() })
+  });
+  const data = await res.json();
+  if (res.ok && data.success) return data;
+  throw new Error(data.message || 'Failed to send OTP. Please try again.');
+}
+
+export async function verifyOtp(email, otp) {
+  if (!email || !otp) throw new Error('Email and OTP are required.');
+  const res = await apiFetch(`${API_BASE}/auth/verify-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim(), otp: otp.trim() })
+  });
+  const data = await res.json();
+  if (res.ok && data.success) return data;
+  throw new Error(data.message || 'Failed to verify OTP. Please try again.');
 }
 
 /**

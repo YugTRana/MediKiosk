@@ -10,12 +10,11 @@ import {
 } from 'lucide-react';
 import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js';
 import { convertSessionToFhirR4Bundle, validateFhirR4Bundle } from '../services/fhirGenerator.js';
-import { pushFhirToHospitalEmr } from '../services/abdmService.js';
+import { clearStaffSession, getSavedStaffUser, fetchStaffProfile, pushFhirToHospitalEmr } from '../services/authService.js';
 import { getLabFlagBadgeClass } from '../services/docAiService.js';
-import { clearStaffSession, getSavedStaffUser, fetchStaffProfile } from '../services/authService.js';
 import DigitizedDocumentTable from '../components/DigitizedDocumentTable.jsx';
 import DocumentTimeline from '../components/DocumentTimeline.jsx';
-import { Languages } from 'lucide-react';
+import { Languages, Phone } from 'lucide-react';
 
 // Play Realistic Hospital Chime Synthesizer via Web Audio API
 function playHospitalChime() {
@@ -224,7 +223,7 @@ export default function DoctorDashboard() {
   };
 
   // Persist physician amendments distinctly from AI draft
-  const handleSavePhysicianEdits = async () => {
+  const handleSavePhysicianEdits = async (skipFetch = false) => {
     if (!currentSession) return;
     setIsSavingEdits(true);
     try {
@@ -243,7 +242,7 @@ export default function DoctorDashboard() {
       if (res.ok) {
         setSaveEditFeedback(true);
         setTimeout(() => setSaveEditFeedback(false), 3000);
-        fetchSessions();
+        if (skipFetch !== true) fetchSessions();
       }
     } catch (err) {
       console.error('Failed to save physician edits:', err);
@@ -387,9 +386,31 @@ export default function DoctorDashboard() {
       });
     }, 700);
 
-    // Step C: Update status in Database
+    // Step C: Trigger Real Phone Call via Twilio
     try {
       const { getAuthHeaders } = await import('../services/authService.js');
+      
+      // Make the real phone call
+      fetch(`http://localhost:3000/api/sessions/${currentSession.id}/phone-call`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ doctorName: docName, roomLabel: roomLabel })
+      })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          console.error('[DoctorDashboard] Server returned error for Twilio Call:', errorData);
+          alert(`Twilio Phone Call Failed: ${errorData.message || res.statusText}. Check backend logs.`);
+        } else {
+          console.log('[DoctorDashboard] Twilio Call initiated successfully');
+        }
+      })
+      .catch(err => {
+        console.warn('[DoctorDashboard] Twilio Call network failed:', err);
+        alert(`Network Error: Could not reach backend for Twilio call. ${err.message}`);
+      });
+
+      // Update status in Database
       await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/status`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
@@ -407,9 +428,11 @@ export default function DoctorDashboard() {
     setIsPushingEmr(true);
     setEmrPushSuccess(null);
 
+    const completedSessionId = currentSession.id;
+
     // Automatically accept all draft sections
     handleAcceptAllSections();
-    await handleSavePhysicianEdits();
+    await handleSavePhysicianEdits(true);
 
     try {
       const res = await pushFhirToHospitalEmr({
@@ -418,7 +441,25 @@ export default function DoctorDashboard() {
         fhirBundle
       });
       setEmrPushSuccess(res);
+      
+      // Force update status to COMPLETED on success so it is removed from Doctor Queue
+      try {
+        const { getAuthHeaders } = await import('../services/authService.js');
+        await fetch(`http://localhost:3000/api/sessions/${completedSessionId}/status`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ status: 'COMPLETED' })
+        });
+      } catch (e) {
+        console.warn('Failed to force status update', e);
+      }
+
       // Refresh session list to reflect COMPLETED status
+      setSessionsData(prev => ({
+        ...prev,
+        sessions: prev.sessions ? prev.sessions.filter(s => s.id !== completedSessionId) : []
+      }));
+      setSelectedSessionId(null);
       fetchSessions();
     } catch (err) {
       console.error('[DoctorDashboard] Failed to push to EMR:', err);
@@ -426,7 +467,7 @@ export default function DoctorDashboard() {
       // Force update status to COMPLETED since we show a fallback receipt
       try {
         const { getAuthHeaders } = await import('../services/authService.js');
-        await fetch(`http://localhost:3000/api/sessions/${currentSession.id}/status`, {
+        await fetch(`http://localhost:3000/api/sessions/${completedSessionId}/status`, {
           method: 'PATCH',
           headers: getAuthHeaders(),
           body: JSON.stringify({ status: 'COMPLETED' })
@@ -441,6 +482,12 @@ export default function DoctorDashboard() {
         syncedAt: new Date().toISOString(),
         receipt: { resourceCount: fhirBundle?.entry?.length || 5 }
       });
+      
+      setSessionsData(prev => ({
+        ...prev,
+        sessions: prev.sessions ? prev.sessions.filter(s => s.id !== completedSessionId) : []
+      }));
+      setSelectedSessionId(null);
       fetchSessions();
     } finally {
       setIsPushingEmr(false);
@@ -787,6 +834,15 @@ export default function DoctorDashboard() {
                     {isCallingAudio ? 'Calling...' : 'Call Patient'}
                   </button>
 
+                  <a
+                    href={`tel:${currentSession.patientDetails?.mobile || ''}`}
+                    className="px-3.5 py-2 text-xs font-black rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300"
+                    title="Directly dial this patient from your device"
+                  >
+                    <Phone className="w-4 h-4 text-slate-600" />
+                    Direct Dial
+                  </a>
+
                   <button
                     onClick={handleFinalizeAndPushToEmr}
                     disabled={isPushingEmr}
@@ -1052,6 +1108,15 @@ export default function DoctorDashboard() {
                     <Volume2 className="w-4 h-4 text-amber-300" />
                     {isCallingAudio ? 'Calling...' : '📢 Call Patient'}
                   </button>
+
+                  <a
+                    href={`tel:${currentSession.patientDetails?.mobile || ''}`}
+                    className="px-5 py-3 text-xs font-black rounded-xl shadow-sm cursor-pointer transition-all flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300"
+                    title="Directly dial this patient from your device"
+                  >
+                    <Phone className="w-4 h-4 text-slate-600" />
+                    Direct Dial
+                  </a>
 
                   <button
                     onClick={handleFinalizeAndPushToEmr}

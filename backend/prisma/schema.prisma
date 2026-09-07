@@ -11,6 +11,7 @@ model Patient {
   id        String    @id @default(cuid())
   name      String
   mobile    String    @unique
+  email     String?   @unique
   password  String
   age       Int
   gender    String
@@ -118,4 +119,12 @@ model ConsentRecord {
   revokedAt          DateTime?
   ipAddress          String?
   userAgent          String?
+}
+
+model OtpSession {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }

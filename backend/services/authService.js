@@ -18,7 +18,7 @@ function cleanMobileDigits(mobile) {
 /**
  * 1. Register a New Patient (Sign Up)
  */
-async function registerPatient({ name, mobile, password, age, gender, address }) {
+async function registerPatient({ name, mobile, email, password, age, gender, address }) {
   if (!name || !name.trim()) {
     throw new Error('Please enter your full name.');
   }
@@ -30,6 +30,15 @@ async function registerPatient({ name, mobile, password, age, gender, address })
 
   if (!password || password.trim().length < 4) {
     throw new Error('Please enter a password with at least 4 characters.');
+  }
+
+  if (email) {
+    const existingEmail = await prisma.patient.findUnique({
+      where: { email: email.trim().toLowerCase() }
+    });
+    if (existingEmail) {
+      throw new Error(`An account with email ${email} is already registered.`);
+    }
   }
 
   // Check if mobile already registered
@@ -49,6 +58,7 @@ async function registerPatient({ name, mobile, password, age, gender, address })
     data: {
       name: name.trim(),
       mobile: cleanMobile,
+      email: email ? email.trim().toLowerCase() : null,
       password: await bcrypt.hash(password.trim(), 10), // Stored securely
       age: parsedAge,
       gender: patientGender,

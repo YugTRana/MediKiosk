@@ -15,7 +15,9 @@ import { AYUSH_COMPLAINT_META, AYUSH_QUESTIONS, compileAyushSummary } from '../s
 import html2pdf from 'html2pdf.js';
 import { 
   loginPatient, 
-  signupPatient, 
+  signupPatient,
+  sendOtp,
+  verifyOtp,
   updateAdminPatient,
   clearStaffSession
 } from '../services/authService.js';
@@ -56,10 +58,11 @@ export default function KioskPage() {
 
   // Patient Auth State
   const [authTab, setAuthTab] = useState('login'); // 'login' | 'signup'
-  const [loginForm, setLoginForm] = useState({ mobile: '', password: '' });
+  const [loginForm, setLoginForm] = useState({ mobile: '', email: '', password: '' });
   const [signupForm, setSignupForm] = useState({
     name: '',
     mobile: '',
+    email: '',
     password: '',
     age: '',
     gender: 'Male',
@@ -69,6 +72,12 @@ export default function KioskPage() {
   const [authError, setAuthError] = useState(null);
   const [authSuccessMessage, setAuthSuccessMessage] = useState(null);
   const [verifiedPatient, setVerifiedPatient] = useState(null);
+  
+  // OTP State
+  const [showOtpStep, setShowOtpStep] = useState(false);
+  const [otpValue, setOtpValue] = useState('');
+  const [isOtpLoading, setIsOtpLoading] = useState(false);
+  const [otpAction, setOtpAction] = useState('login'); // 'login' | 'signup'
 
   // Profile Edit State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -231,12 +240,12 @@ export default function KioskPage() {
   // PATIENT LOGIN & SIGN-UP HANDLERS
   // ============================================================================
 
-  // 1. Log In (Mobile + Password)
+  // 1. Initiate Log In (Sends OTP)
   const handlePatientLogin = async (e) => {
     if (e) e.preventDefault();
     cancelSpeech();
-    if (!loginForm.mobile || !loginForm.password) {
-      setAuthError('Please enter both your registered Mobile Number and Password.');
+    if (!loginForm.mobile || !loginForm.email || !loginForm.password) {
+      setAuthError('Please enter Mobile Number, Email, and Password.');
       return;
     }
 
@@ -244,26 +253,23 @@ export default function KioskPage() {
     setAuthError(null);
     setAuthSuccessMessage(null);
     try {
-      const profile = await loginPatient(loginForm);
-      setVerifiedPatient(profile);
-      narrate(
-        selectedLanguage === 'हिंदी'
-          ? `नमस्ते ${profile.name} जी! आपका स्वागत है।`
-          : `Welcome back, ${profile.name}! You are logged in.`
-      );
+      await sendOtp(loginForm.email);
+      setOtpAction('login');
+      setShowOtpStep(true);
+      setAuthSuccessMessage(`OTP sent to ${loginForm.email}`);
     } catch (err) {
-      setAuthError(err.message || 'Login failed. Please check your credentials.');
+      setAuthError(err.message || 'Failed to send OTP.');
     } finally {
       setIsAuthLoading(false);
     }
   };
 
-  // 2. Sign Up (New Registration) - Mandate login after sign up!
+  // 2. Initiate Sign Up (Sends OTP)
   const handlePatientSignup = async (e) => {
     if (e) e.preventDefault();
     cancelSpeech();
-    if (!signupForm.name || !signupForm.mobile || !signupForm.password) {
-      setAuthError('Please fill in your Name, Mobile Number, and create a Password.');
+    if (!signupForm.name || !signupForm.mobile || !signupForm.email || !signupForm.password) {
+      setAuthError('Please fill in Name, Mobile, Email, and Password.');
       return;
     }
 
@@ -271,21 +277,60 @@ export default function KioskPage() {
     setAuthError(null);
     setAuthSuccessMessage(null);
     try {
-      const profile = await signupPatient(signupForm);
-      // Switch back to Login Tab and ask user to log in with their newly created credentials
-      setLoginForm({ mobile: profile.mobile, password: '' });
-      setAuthTab('login');
-      setAuthSuccessMessage(`Account registered successfully for ${profile.name}! Please enter your password to log in.`);
-      setSignupForm({ name: '', mobile: '', password: '', age: '', gender: 'Male', address: '' });
-      narrate(
-        selectedLanguage === 'हिंदी'
-          ? `बधाई हो ${profile.name} जी! आपका खाता बन गया है। कृपया अपना पासवर्ड दर्ज करके लॉगिन करें।`
-          : `Registration successful for ${profile.name}! Please enter your password to log in.`
-      );
+      await sendOtp(signupForm.email);
+      setOtpAction('signup');
+      setShowOtpStep(true);
+      setAuthSuccessMessage(`OTP sent to ${signupForm.email}`);
     } catch (err) {
-      setAuthError(err.message || 'Sign up failed. Please try again.');
+      setAuthError(err.message || 'Failed to send OTP.');
     } finally {
       setIsAuthLoading(false);
+    }
+  };
+
+  // 3. Verify OTP and finalize login/signup
+  const handleVerifyOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (!otpValue || otpValue.length < 6) {
+      setAuthError('Please enter a valid 6-digit OTP.');
+      return;
+    }
+
+    setIsOtpLoading(true);
+    setAuthError(null);
+    try {
+      const emailToVerify = otpAction === 'login' ? loginForm.email : signupForm.email;
+      await verifyOtp(emailToVerify, otpValue);
+      
+      // If OTP is valid, proceed with actual login or signup
+      if (otpAction === 'login') {
+        const profile = await loginPatient(loginForm);
+        setVerifiedPatient(profile);
+        setShowOtpStep(false);
+        setOtpValue('');
+        narrate(
+          selectedLanguage === 'हिंदी'
+            ? `नमस्ते ${profile.name} जी! आपका स्वागत है।`
+            : `Welcome back, ${profile.name}! You are logged in.`
+        );
+      } else {
+        const profile = await signupPatient(signupForm);
+        setShowOtpStep(false);
+        setOtpValue('');
+        setLoginForm({ mobile: profile.mobile, email: profile.email || '', password: '' });
+        setAuthTab('login');
+        setAuthSuccessMessage(`Account registered successfully for ${profile.name}! Please enter your password to log in.`);
+        setSignupForm({ name: '', mobile: '', email: '', password: '', age: '', gender: 'Male', address: '' });
+        narrate(
+          selectedLanguage === 'हिंदी'
+            ? `बधाई हो ${profile.name} जी! आपका खाता बन गया है। कृपया अपना पासवर्ड दर्ज करके लॉगिन करें।`
+            : `Registration successful for ${profile.name}! Please enter your password to log in.`
+        );
+      }
+    } catch (err) {
+      setAuthError(err.message || 'Invalid OTP or Action Failed.');
+    } finally {
+      setIsOtpLoading(false);
     }
   };
 
@@ -999,10 +1044,51 @@ export default function KioskPage() {
               </div>
             )}
 
-            {/* LOGIN & SIGNUP FORMS (When not authenticated) */}
+            {/* LOGIN, SIGNUP & OTP FORMS (When not authenticated) */}
             {!verifiedPatient && (
               <div className="flex flex-col gap-6 max-w-xl mx-auto w-full">
-                {/* Tabs */}
+                
+                {/* OTP VERIFICATION STEP */}
+                {showOtpStep ? (
+                  <form onSubmit={handleVerifyOtp} className="flex flex-col gap-4 bg-slate-50 border border-slate-200 rounded-3xl p-6 animate-fadeIn text-center">
+                    <h3 className="text-xl font-black text-slate-800">Enter OTP</h3>
+                    <p className="text-sm text-slate-600 mb-2">We sent a 6-digit OTP to your email address.</p>
+                    
+                    <div>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={otpValue}
+                        onChange={(e) => {
+                          setOtpValue(e.target.value.replace(/[^0-9]/g, ''));
+                          setAuthError(null);
+                        }}
+                        placeholder="000000"
+                        className="w-full text-center p-4 text-2xl font-mono font-bold tracking-[0.5em] bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isOtpLoading || otpValue.length < 6}
+                      className="mt-4 py-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span>{isOtpLoading ? 'Verifying...' : 'Verify OTP'}</span>
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => { setShowOtpStep(false); setOtpValue(''); }}
+                      className="mt-2 text-sm text-slate-500 hover:text-slate-800 font-bold"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    {/* Tabs */}
                 <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
                   <button
                     onClick={() => { setAuthTab('login'); setAuthError(null); }}
@@ -1042,6 +1128,24 @@ export default function KioskPage() {
                           className="w-full p-3.5 pl-11 text-sm font-mono font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
                         />
                         <Smartphone className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1.5">Email Address *</label>
+                      <div className="relative">
+                        <input
+                          type="email"
+                          required
+                          value={loginForm.email}
+                          onChange={(e) => {
+                            setLoginForm({ ...loginForm, email: e.target.value });
+                            setAuthError(null);
+                          }}
+                          placeholder="e.g. email@example.com"
+                          className="w-full p-3.5 pl-11 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                        />
+                        <Globe className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
                       </div>
                     </div>
 
@@ -1110,6 +1214,21 @@ export default function KioskPage() {
                     </div>
 
                     <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Email Address *</label>
+                      <input
+                        type="email"
+                        required
+                        value={signupForm.email}
+                        onChange={(e) => {
+                          setSignupForm({ ...signupForm, email: e.target.value });
+                          setAuthError(null);
+                        }}
+                        placeholder="e.g. email@example.com"
+                        className="w-full p-3 text-sm font-bold bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+
+                    <div>
                       <label className="text-xs font-bold text-slate-700 block mb-1">Create Password *</label>
                       <input
                         type="password"
@@ -1170,6 +1289,8 @@ export default function KioskPage() {
                       <span>{isAuthLoading ? 'Creating Account...' : 'Register & Sign In'}</span>
                     </button>
                   </form>
+                )}
+                </>
                 )}
               </div>
             )}
