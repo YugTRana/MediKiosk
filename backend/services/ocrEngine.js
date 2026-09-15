@@ -211,7 +211,7 @@ function extractJpegsFromPdfBuffer(pdfBuffer) {
     if (endIdx === -1) break;
 
     const jpegBuffer = pdfBuffer.slice(startIdx, endIdx + 2);
-    if (jpegBuffer.length > 4000) {
+    if (jpegBuffer.length > 8000) {
       jpegs.push(jpegBuffer);
     }
     offset = endIdx + 2;

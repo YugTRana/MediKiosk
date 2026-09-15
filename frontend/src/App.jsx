@@ -94,7 +94,7 @@ export default function App() {
   const hideNav = location.pathname === '/staff-login' || location.pathname === '/admin-login';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className={`min-h-screen flex flex-col dynamic-bg`}>
       {!hideNav && <GlobalNav />}
       
       <main className="flex-1">

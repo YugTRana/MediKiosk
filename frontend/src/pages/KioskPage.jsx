@@ -5,7 +5,7 @@ import {
   Sparkles, ShieldAlert, Upload, Camera, FileText, FlaskConical, Check, 
   RotateCcw, Leaf, Layers, AlertCircle, Pill, ChevronRight,
   ShieldCheck, UserCheck, Smartphone, Key, Lock, XCircle, User, QrCode, Edit3,
-  Stethoscope, Settings, WifiOff, Wifi, ClipboardList
+  Stethoscope, Settings, WifiOff, Wifi, ClipboardList, Moon, Sun
 } from 'lucide-react';
 import { speakText, cancelSpeech, startListening, isSTTSupported, getSpeechProvider, getRecoveryPrompt } from '../services/speechService.js';
 import AudioWaveformVisualizer from '../components/AudioWaveformVisualizer.jsx';
@@ -40,6 +40,7 @@ const COMPLAINT_ICONS = {
 export default function KioskPage() {
   // Steps: 'patient_auth' | 'dpdp_consent' | 'complaint_selection' | 'doc_digitization' | 'questions' | 'ayush_questions' | 'summary_readback' | 'submitted'
   const [step, setStep] = useState('patient_auth');
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [pendingSubmissionData, setPendingSubmissionData] = useState(null);
@@ -131,11 +132,24 @@ export default function KioskPage() {
   const [submittedSession, setSubmittedSession] = useState(null);
   const [sessionId] = useState(() => `sess_${Date.now()}`);
 
+  // Vitals State
+  const [vitalsData, setVitalsData] = useState(null);
+  const [isScanningVitals, setIsScanningVitals] = useState(false);
+
   // Patient Care Plan State
   const [prescriptionToken, setPrescriptionToken] = useState('');
   const [carePlanData, setCarePlanData] = useState(null);
   const [isFetchingCarePlan, setIsFetchingCarePlan] = useState(false);
   const [carePlanError, setCarePlanError] = useState('');
+  const pushTelemetry = async (type, text) => {
+    try {
+      await fetch('http://localhost:3000/api/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, text })
+      });
+    } catch (e) {}
+  };
 
   const fetchCarePlan = async (e) => {
     e.preventDefault();
@@ -212,6 +226,56 @@ export default function KioskPage() {
       }
     };
   }, []);
+
+  // Simulate Hardware Vitals Scanning via AI
+  useEffect(() => {
+    if (step === 'vitals_scan') {
+      setIsScanningVitals(true);
+      setVitalsData(null);
+      
+      const fetchAiVitals = async () => {
+        try {
+          const complaintTitle = isAyushFlow 
+            ? 'AYUSH General Assessment' 
+            : (selectedComplaint?.titleEn || 'General Consultation');
+            
+          const answers = pendingSubmissionData?.finalAnswers || [];
+          
+          const response = await fetch('http://localhost:3000/api/vitals/simulate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ complaintTitle, answers })
+          });
+          
+          if (!response.ok) throw new Error('Failed to fetch AI vitals');
+          
+          const data = await response.json();
+          setVitalsData(data);
+        } catch (error) {
+          console.error("AI Vitals Error:", error);
+          // Fallback to random if server fails
+          setVitalsData({
+            heartRate: Math.floor(Math.random() * (100 - 65 + 1)) + 65,
+            bloodPressure: `${Math.floor(Math.random() * (130 - 110 + 1)) + 110}/${Math.floor(Math.random() * (85 - 70 + 1)) + 70}`,
+            temperature: (Math.random() * (99.2 - 97.5) + 97.5).toFixed(1),
+            oxygenSat: Math.floor(Math.random() * (100 - 95 + 1)) + 95,
+          });
+        } finally {
+          setIsScanningVitals(false);
+          if (ttsEnabled) {
+            speakText(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi' ? 'स्कैनिंग पूरी हो गई है।' : 'Scanning complete.', selectedLanguage);
+          }
+        }
+      };
+      
+      // Add minimum 3s delay for the animation effect, even if API is fast
+      const timer = setTimeout(() => {
+        fetchAiVitals();
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [step, ttsEnabled, selectedLanguage, selectedComplaint, pendingSubmissionData, isAyushFlow]);
 
   const narrate = (text) => {
     if (!ttsEnabled || !text) return;
@@ -511,6 +575,7 @@ export default function KioskPage() {
           if (isFinal) {
             setIsListening(false);
             setAudioLevel(0);
+            pushTelemetry('speech', `PATIENT: "${transcript.trim()}"`);
             
             // Auto-submit the voice response to create a continuous conversational flow
             // Check which step we are currently on to route to the correct handler
@@ -592,7 +657,11 @@ export default function KioskPage() {
       setActiveRedFlag(redFlagCheck.reason);
       updatedFlags = [...redFlagsHistory, redFlagCheck.reason];
       setRedFlagsHistory(updatedFlags);
+      pushTelemetry('ai', 'AI triggered RED_FLAG check. Status: CRITICAL.');
       logRedFlagToBackend(redFlagCheck, answerEntry);
+    } else {
+      pushTelemetry('system', `Extracted Keywords: [${answerEntry.customVoiceText ? 'Free_Text' : answerEntry.selectedOption?.labelEn}]`);
+      pushTelemetry('ai', 'AI triggered RED_FLAG check. Status: Clear.');
     }
 
     // Call Backend for Next Adaptive Question
@@ -629,6 +698,7 @@ export default function KioskPage() {
         });
       } else {
         // We received the next question
+        pushTelemetry('ai', `AI generated follow-up: "${selectedLanguage === 'हिंदी' ? data.data.questionHi : data.data.questionEn}"`);
         setCurrentDynamicQuestion(data.data);
         speakCurrentQuestion(data.data);
       }
@@ -652,11 +722,21 @@ export default function KioskPage() {
     }
   };
 
-  // Audio Read-back Confirmation Trigger (Phase 7 Bilingual Output)
+  // Vitals Scan Intercept
   const triggerPatientReadBack = ({ finalAnswers, finalRedFlags, ayushData }) => {
     cancelSpeech();
     const payload = { finalAnswers, finalRedFlags, ayushData };
     setPendingSubmissionData(payload);
+
+    setStep('vitals_scan');
+    if (ttsEnabled) {
+      speakText(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi' ? 'कृपया अपनी उंगली पल्स ऑक्सीमीटर में रखें।' : 'Please place your finger in the Pulse Oximeter.', selectedLanguage);
+    }
+  };
+
+  const proceedToReadBack = () => {
+    cancelSpeech();
+    const { finalAnswers, ayushData } = pendingSubmissionData;
 
     const title = isAyushFlow 
       ? ((selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? AYUSH_COMPLAINT_META.titleHi : AYUSH_COMPLAINT_META.titleEn)
@@ -821,7 +901,8 @@ export default function KioskPage() {
       answers: finalAnswers,
       redFlagsTriggered: finalRedFlags || [],
       digitizedDocument: extractedDocData || null,
-      ayushAssessment: ayushData || null
+      ayushAssessment: ayushData || null,
+      vitals: vitalsData || null
     };
 
     try {
@@ -838,6 +919,7 @@ export default function KioskPage() {
       if (res.ok && data.session) {
         setSubmittedSession(data.session);
         setStep('submitted');
+        pushTelemetry('success', 'Session sent to Doctor Queue.');
         narrate(
           selectedLanguage === 'हिंदी'
             ? 'धन्यवाद! आपकी जानकारी दर्ज कर ली गई है। कृपया प्रतीक्षा कक्ष में बैठें।'
@@ -877,7 +959,7 @@ export default function KioskPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col p-4 md:p-8 select-none font-sans">
+    <div className={`min-h-screen flex flex-col p-4 md:p-8 select-none font-sans transition-colors duration-500 ${isDarkMode ? 'dark-theme bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {/* Kiosk Header */}
       <header className="bg-slate-900 text-white p-4 md:p-5 rounded-3xl shadow-md flex flex-col sm:flex-row justify-between items-center gap-3 border-b-2 border-slate-800 mb-6">
         <div className="flex items-center gap-3">
@@ -900,6 +982,14 @@ export default function KioskPage() {
 
         {/* Global Controls: Language & Audio Narration */}
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className={`px-3.5 py-2 rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'}`}
+            title="Toggle Dark Mode"
+          >
+            {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
+
           <button
             onClick={() => setTtsEnabled(!ttsEnabled)}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border cursor-pointer ${
@@ -2118,6 +2208,81 @@ export default function KioskPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </main>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5B. HARDWARE VITALS MOCKUP SCREEN                                         */}
+      {/* ========================================================================= */}
+      {step === 'vitals_scan' && (
+        <main className="max-w-3xl mx-auto w-full flex-1 flex flex-col items-center justify-center py-6 animate-fadeIn">
+          <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm w-full flex flex-col items-center gap-6">
+            <h2 className="text-2xl font-black text-slate-900 text-center">
+              {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? 'हार्डवेयर वाइटल्स स्कैन' : 'Hardware Vitals Scan'}
+            </h2>
+            <p className="text-slate-500 text-center text-sm mb-4">
+              {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') 
+                ? 'कृपया अपनी उंगली पल्स ऑक्सीमीटर में रखें और रक्तचाप कफ पहनें।' 
+                : 'Please place your finger in the Pulse Oximeter and wear the Blood Pressure cuff.'}
+            </p>
+
+            {isScanningVitals ? (
+              <div className="flex flex-col items-center gap-6 py-12">
+                <div className="relative flex items-center justify-center w-32 h-32">
+                  <div className="absolute inset-0 bg-blue-100 rounded-full animate-ping opacity-75"></div>
+                  <div className="relative bg-blue-500 text-white p-6 rounded-full shadow-lg">
+                    <Activity className="w-12 h-12 animate-pulse" />
+                  </div>
+                </div>
+                <p className="text-blue-600 font-bold animate-pulse">
+                  {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? 'ब्लूटूथ डिवाइस स्कैन हो रहा है...' : 'Scanning Bluetooth Devices...'}
+                </p>
+              </div>
+            ) : (
+              <div className="w-full flex flex-col gap-6 animate-fadeIn">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center gap-4">
+                    <div className="bg-white p-3 rounded-xl shadow-sm text-rose-500"><HeartPulse className="w-6 h-6" /></div>
+                    <div>
+                      <p className="text-xs font-bold text-rose-600/70 uppercase">Heart Rate</p>
+                      <p className="text-2xl font-black text-slate-900">{vitalsData?.heartRate} <span className="text-sm font-medium text-slate-500">bpm</span></p>
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex items-center gap-4">
+                    <div className="bg-white p-3 rounded-xl shadow-sm text-blue-500"><Activity className="w-6 h-6" /></div>
+                    <div>
+                      <p className="text-xs font-bold text-blue-600/70 uppercase">Blood Pressure</p>
+                      <p className="text-2xl font-black text-slate-900">{vitalsData?.bloodPressure} <span className="text-sm font-medium text-slate-500">mmHg</span></p>
+                    </div>
+                  </div>
+                  <div className="bg-sky-50 border border-sky-100 p-4 rounded-2xl flex items-center gap-4">
+                    <div className="bg-white p-3 rounded-xl shadow-sm text-sky-500"><Wind className="w-6 h-6" /></div>
+                    <div>
+                      <p className="text-xs font-bold text-sky-600/70 uppercase">SpO2</p>
+                      <p className="text-2xl font-black text-slate-900">{vitalsData?.oxygenSat}<span className="text-sm font-medium text-slate-500">%</span></p>
+                    </div>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-center gap-4">
+                    <div className="bg-white p-3 rounded-xl shadow-sm text-amber-500"><Thermometer className="w-6 h-6" /></div>
+                    <div>
+                      <p className="text-xs font-bold text-amber-600/70 uppercase">Temperature</p>
+                      <p className="text-2xl font-black text-slate-900">{vitalsData?.temperature} <span className="text-sm font-medium text-slate-500">°F</span></p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-center mt-4">
+                  <button
+                    onClick={proceedToReadBack}
+                    className="bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black text-lg hover:bg-emerald-700 hover:shadow-lg hover:-translate-y-1 transition-all flex items-center gap-2"
+                  >
+                    {(selectedLanguage === 'हिंदी' || selectedLanguage === 'Hindi') ? 'आगे बढ़ें' : 'Proceed'}
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       )}

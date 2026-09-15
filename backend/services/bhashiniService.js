@@ -41,9 +41,7 @@ const LANGUAGE_MAP = {
  * Check whether Bhashini live credentials are configured in the environment.
  */
 function isBhashiniConfigured() {
-  // Hackathon Demo Mode: Always return true so the UI appears fully connected to Bhashini.
-  // The service will gracefully fall back to Browser Web Speech under the hood when API calls fail.
-  return true;
+  return false;
 }
 
 /**

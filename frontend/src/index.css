@@ -16,6 +16,24 @@
   }
 }
 
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.dynamic-bg {
+  background: linear-gradient(-45deg, #f8fafc, #e2e8f0, #cbd5e1, #f1f5f9);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+}
+
+.dark-theme.dynamic-bg {
+  background: linear-gradient(-45deg, #020617, #0f172a, #1e293b, #0f172a);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+}
+
 @layer components {
   /* Sleek, modern primary button */
   .btn-kiosk-primary {
@@ -35,4 +53,47 @@
   .kiosk-card {
     @apply bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow;
   }
+}
+
+/* Dynamic Dark Mode Theme Overrides */
+.dark-theme .bg-white { background-color: #0f172a !important; }
+.dark-theme .bg-slate-50 { background-color: #020617 !important; }
+.dark-theme .bg-slate-100 { background-color: #0f172a !important; }
+.dark-theme .bg-slate-200 { background-color: #1e293b !important; }
+.dark-theme .bg-slate-300 { background-color: #334155 !important; }
+
+.dark-theme .text-slate-900 { color: #f8fafc !important; }
+.dark-theme .text-slate-800 { color: #e2e8f0 !important; }
+.dark-theme .text-slate-700 { color: #cbd5e1 !important; }
+.dark-theme .text-slate-600 { color: #94a3b8 !important; }
+.dark-theme .text-slate-500 { color: #64748b !important; }
+
+.dark-theme .border-slate-200 { border-color: #1e293b !important; }
+.dark-theme .border-slate-300 { border-color: #334155 !important; }
+.dark-theme .border-slate-400 { border-color: #475569 !important; }
+.dark-theme .border-slate-100 { border-color: #0f172a !important; }
+
+/* Keep some specific elements vibrant in dark mode */
+.dark-theme .text-red-700 { color: #fca5a5 !important; }
+.dark-theme .text-emerald-700 { color: #6ee7b7 !important; }
+.dark-theme .text-blue-700 { color: #93c5fd !important; }
+.dark-theme .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.1) !important; border-color: rgba(16, 185, 129, 0.2) !important; }
+.dark-theme .bg-blue-50 { background-color: rgba(59, 130, 246, 0.1) !important; border-color: rgba(59, 130, 246, 0.2) !important; }
+.dark-theme .bg-red-50 { background-color: rgba(239, 68, 68, 0.1) !important; border-color: rgba(239, 68, 68, 0.2) !important; }
+.dark-theme .bg-amber-50 { background-color: rgba(245, 158, 11, 0.1) !important; border-color: rgba(245, 158, 11, 0.2) !important; }
+
+/* Update the kiosk-card */
+.dark-theme .kiosk-card {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+}
+
+/* Modal and inputs */
+.dark-theme input, .dark-theme select, .dark-theme textarea {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+.dark-theme input::placeholder, .dark-theme textarea::placeholder {
+  color: #64748b !important;
 }

@@ -6,7 +6,7 @@ import {
   Activity, HeartPulse, Edit3, Check, ThumbsUp, ThumbsDown, Copy, 
   Sparkles, ShieldAlert, Award, FileCheck, CheckCheck, Code2, Send,
   Layers, Database, ArrowRight, ShieldCheck, UserCheck, Volume2, VolumeX,
-  BellRing, Radio, Settings, User, Lock, LogOut
+  BellRing, Radio, Settings, User, Lock, LogOut, Moon, Sun
 } from 'lucide-react';
 import { compileClinicalDossier } from '../services/clinicalSummaryGenerator.js';
 import { convertSessionToFhirR4Bundle, validateFhirR4Bundle } from '../services/fhirGenerator.js';
@@ -53,6 +53,7 @@ function playHospitalChime() {
 
 export default function DoctorDashboard() {
   const navigate = useNavigate();
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [sessionsData, setSessionsData] = useState({ sessions: [], redFlags: [] });
   const [loading, setLoading] = useState(false);
 
@@ -81,7 +82,10 @@ export default function DoctorDashboard() {
   const [dossierLang, setDossierLang] = useState('en'); // 'en' | 'hi'
   const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [saveEditFeedback, setSaveEditFeedback] = useState(false);
-
+  
+  // Follow-up state
+  const [followUpDate, setFollowUpDate] = useState('');
+  const [illnessSeverity, setIllnessSeverity] = useState('');
   const fetchSessions = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -236,7 +240,9 @@ export default function DoctorDashboard() {
         },
         body: JSON.stringify({
           sections: currentSections,
-          signed: true
+          signed: true,
+          followUpDate: followUpDate || undefined,
+          illnessSeverity: illnessSeverity || undefined
         })
       });
       if (res.ok) {
@@ -494,8 +500,23 @@ export default function DoctorDashboard() {
     }
   };
 
+  const handleTriggerCronDemo = async () => {
+    try {
+      const res = await fetch(`http://localhost:3000/api/debug/run-followup-cron`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        alert("Demo Follow-up Cron triggered! Check backend console for Emails and SMS being sent.");
+      } else {
+        alert("Failed to trigger cron.");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 flex flex-col gap-6 select-none font-sans">
+    <div className={`min-h-screen transition-colors duration-500 font-sans p-4 md:p-8 flex flex-col gap-6 select-none ${isDarkMode ? 'dark-theme bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {/* Top Header */}
       <header className="bg-slate-900 text-white p-5 rounded-2xl shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b-2 border-slate-800">
         <div className="flex items-center gap-3">
@@ -537,6 +558,14 @@ export default function DoctorDashboard() {
             </div>
           </div>
 
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className={`px-3.5 py-2 rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${isDarkMode ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'}`}
+            title="Toggle Dark Mode"
+          >
+            {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
+
           <a
             href="/kiosk"
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
@@ -551,6 +580,14 @@ export default function DoctorDashboard() {
             title="Refresh patient queue"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          
+          <button
+            onClick={handleTriggerCronDemo}
+            className="px-3.5 py-2 bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 border border-purple-800/80 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Trigger Follow-Up Cron Job Manually"
+          >
+            <BellRing className="w-3.5 h-3.5 text-purple-400" /> Test Cron Notifications
           </button>
 
           <button
@@ -593,7 +630,7 @@ export default function DoctorDashboard() {
                 return (
                   <button
                     key={sess.id}
-                    onClick={() => { setSelectedSessionId(sess.id); setEmrPushSuccess(null); }}
+                    onClick={() => { setSelectedSessionId(sess.id); setEmrPushSuccess(null); setFollowUpDate(''); setIllnessSeverity(''); }}
                     className={`w-full p-3.5 rounded-xl text-left border-2 transition-all cursor-pointer flex flex-col gap-1.5 relative ${
                       isRedFlag
                         ? isSelected
@@ -896,6 +933,39 @@ export default function DoctorDashboard() {
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Temperature</span>
                   <strong className="text-sm text-slate-900 font-mono">{currentSession?.vitals?.temperature || '--'} <span className="text-[10px] text-slate-500 font-normal">°F</span></strong>
+                </div>
+              </div>
+
+              {/* Follow-Up Scheduling Strip */}
+              <div className="flex flex-col sm:flex-row gap-4 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                <div className="flex-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">Schedule Follow-Up Date (Optional)</label>
+                  <input 
+                    type="date" 
+                    value={followUpDate}
+                    onChange={(e) => setFollowUpDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">Illness Severity</label>
+                  <select 
+                    value={illnessSeverity}
+                    onChange={(e) => setIllnessSeverity(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Select Severity --</option>
+                    <option value="MILD">Mild</option>
+                    <option value="MODERATE">Moderate</option>
+                    <option value="SEVERE">Severe</option>
+                    <option value="CRITICAL">Critical</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <p className="text-[10px] text-slate-500 max-w-[200px] leading-tight pb-1">
+                    If scheduled, the patient will receive automated SMS/Email reminders.
+                  </p>
                 </div>
               </div>
 

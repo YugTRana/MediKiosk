@@ -59,9 +59,7 @@ export function getSpeechLangCode(lang = 'English') {
  * Checks localStorage override first, defaults to 'browser' (or bhashini if configured).
  */
 export function getSpeechProvider() {
-  if (typeof window === 'undefined') return 'browser';
-  const saved = localStorage.getItem('medikiosk_speech_provider');
-  if (saved === 'bhashini' || saved === 'browser') return saved;
+  // Always force 'browser' (Google Web Speech API) to avoid needing Bhashini API Keys
   return 'browser';
 }
 
@@ -368,6 +366,7 @@ export function startListening({
               silenceTimer = setTimeout(() => {
                 console.log('[SpeechService] Silence detected after speech. Auto-stopping recognition.');
                 if (onSilenceDetected) onSilenceDetected();
+                dispatchFinalResult();
                 handleCleanupAndStop();
               }, 2200); // 2.2 seconds of silence
             }
@@ -383,8 +382,21 @@ export function startListening({
     }
   };
 
+  let finalResultDispatched = false;
+
+  const dispatchFinalResult = () => {
+    if (!finalResultDispatched && onResult && accumulatedTranscript) {
+      finalResultDispatched = true;
+      onResult(accumulatedTranscript, true);
+    }
+  };
+
   const handleCleanupAndStop = () => {
     if (isFinalized) return;
+    
+    // Ensure final result is submitted even if stopped manually
+    dispatchFinalResult();
+
     isFinalized = true;
 
     if (silenceTimer) {
@@ -461,8 +473,12 @@ export function startListening({
       accumulatedTranscript = transcript;
       const isFinal = event.results[event.results.length - 1].isFinal;
 
-      if (onResult) {
-        onResult(transcript, isFinal);
+      if (onResult && !isFinalized) {
+        if (isFinal) {
+          dispatchFinalResult();
+        } else {
+          onResult(transcript, false);
+        }
       }
 
       if (isFinal) {

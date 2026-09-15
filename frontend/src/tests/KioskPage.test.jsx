@@ -35,7 +35,8 @@ vi.mock('../services/authService.js', () => ({
     token: 'jwt-mock-token-new'
   })),
   updateAdminPatient: vi.fn(),
-  getAuthHeaders: vi.fn(() => ({}))
+  getAuthHeaders: vi.fn(() => ({})),
+  clearStaffSession: vi.fn()
 }));
 
 // Mock docAiService

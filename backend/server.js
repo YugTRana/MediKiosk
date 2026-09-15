@@ -1,6 +1,6 @@
 require('dotenv').config();
 // Trigger nodemon restart
-const express = require('express');
+const express = require('express'); // nodemon trigger
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -21,6 +21,7 @@ const {
 } = require('./services/authService');
 const { sendOtp, verifyOtp } = require('./services/otpService');
 const { makePatientCall } = require('./services/twilioService');
+const { startFollowUpCronJob, notifyScheduledFollowUp } = require('./services/followUpService');
 const { getNextQuestion } = require('./services/dialogueEngine');
 const { getAyushClarifyingQuestion } = require('./services/ayushDialogueEngine');
 const { getSpeechServiceConfig, bhashiniTranscribeAudio, bhashiniSynthesizeSpeech } = require('./services/bhashiniService');
@@ -105,6 +106,35 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ==============================================================================
+// 1.5. LIVE TELEMETRY (HACKATHON SPECTATOR FEED)
+// ==============================================================================
+let globalTelemetryLogs = [];
+
+app.post('/api/telemetry', (req, res) => {
+  const { type, text } = req.body;
+  if (!type || !text) return res.status(400).json({ error: 'Missing type or text' });
+  
+  const logEntry = {
+    type,
+    text,
+    time: new Date().toLocaleTimeString()
+  };
+  
+  globalTelemetryLogs.push(logEntry);
+  
+  // Keep array small to prevent memory leak
+  if (globalTelemetryLogs.length > 50) {
+    globalTelemetryLogs.shift();
+  }
+  
+  res.json({ success: true });
+});
+
+app.get('/api/telemetry', (req, res) => {
+  res.json({ logs: globalTelemetryLogs });
+});
+
+// ==============================================================================
 // 2. CHIEF COMPLAINT & DIALOGUE FLOWS (FROM PRISMA DB)
 // ==============================================================================
 app.get('/api/dialogue-flows', async (req, res) => {
@@ -128,6 +158,93 @@ app.get('/api/dialogue-flows', async (req, res) => {
   } catch (err) {
     console.warn('[MediKiosk Backend] Error fetching dialogue flows from DB, using fallback:', err.message);
     res.json(fallbackFlows);
+  }
+});
+
+// ==============================================================================
+// 2.5. AI VITALS SIMULATION (HACKATHON MOCKUP)
+// ==============================================================================
+const { GoogleGenAI, Type, Schema } = require('@google/genai');
+
+app.post('/api/vitals/simulate', async (req, res) => {
+  try {
+    const { complaintTitle, answers } = req.body;
+    
+    if (!process.env.GEMINI_API_KEY) {
+      // Fallback if no API key
+      return res.json({
+        heartRate: Math.floor(Math.random() * 35) + 65, // 65-100 bpm
+        bloodPressure: `${Math.floor(Math.random() * 20) + 110}/${Math.floor(Math.random() * 15) + 70}`,
+        temperature: (Math.random() * 1.7 + 97.5).toFixed(1), // 97.5-99.2 F
+        oxygenSat: Math.floor(Math.random() * 5) + 95, // 95-100%
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    const prompt = `You are an AI simulating a hardware medical device (pulse oximeter, thermometer, BP cuff).
+Based on the patient's chief complaint: "${complaintTitle}" and their reported symptoms/answers:
+${JSON.stringify(answers)}
+
+Generate a highly realistic set of vital signs that correspond to this clinical presentation.
+For example, if they have a severe infection/fever, temperature should be > 100°F and HR > 90. 
+If they have respiratory distress, SpO2 should be lower (e.g. 92-95%).
+Otherwise, generate normal healthy adult vitals (HR 60-90, BP ~120/80, Temp 97.5-98.8, SpO2 97-100).
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            heartRate: {
+              type: Type.INTEGER,
+              description: "Heart rate in beats per minute (bpm)"
+            },
+            bloodPressure: {
+              type: Type.STRING,
+              description: "Blood pressure string in format Systolic/Diastolic, e.g. 120/80"
+            },
+            temperature: {
+              type: Type.STRING,
+              description: "Body temperature in degrees Fahrenheit, e.g. 98.6"
+            },
+            oxygenSat: {
+              type: Type.INTEGER,
+              description: "Blood oxygen saturation percentage (SpO2), e.g. 98"
+            }
+          },
+          required: ["heartRate", "bloodPressure", "temperature", "oxygenSat"]
+        }
+      }
+    });
+
+    const resultText = response.text;
+    const vitalsData = JSON.parse(resultText);
+    
+    // Ensure all required fields exist to prevent frontend crash
+    const finalVitals = {
+      heartRate: vitalsData.heartRate || 80,
+      bloodPressure: vitalsData.bloodPressure || '120/80',
+      temperature: vitalsData.temperature || '98.6',
+      oxygenSat: vitalsData.oxygenSat || 98
+    };
+
+    res.json(finalVitals);
+
+  } catch (err) {
+    console.error('[Vitals Simulation API] Error:', err);
+    // Safe fallback
+    res.json({
+      error: err.message,
+      heartRate: 85,
+      bloodPressure: '118/78',
+      temperature: '98.5',
+      oxygenSat: 98
+    });
   }
 });
 
@@ -544,27 +661,102 @@ app.post('/api/admin/generate-sample', async (req, res) => {
 // H. Admin: Real Metrics Aggregation
 app.get('/api/admin/metrics', async (req, res) => {
   try {
-    const [totalSessions, redFlagAlerts, registeredPatients, hisPushed] = await Promise.all([
+    const [totalSessions, redFlagAlerts, registeredPatients, hisPushed, completedSessions, sessionsWithTime] = await Promise.all([
       prisma.session.count(),
       prisma.redFlagAlert.count(),
       prisma.patient.count(),
-      prisma.hisPushedRecord.count()
+      prisma.hisPushedRecord.count(),
+      prisma.session.count({
+        where: {
+          physicianSignedAt: {
+            not: null
+          }
+        }
+      }),
+      prisma.session.findMany({
+        select: {
+          answers: true,
+          submittedAt: true,
+          complaintTitle: true
+        }
+      })
     ]);
 
-    // Calculate dynamic average completion benchmark
-    const avgTime = totalSessions > 0 ? '2m 34s' : '0m 00s';
-    const acceptanceRate = 96;
+    // Calculate actual physician acceptance rate
+    const acceptanceRate = totalSessions > 0 
+      ? Math.round((completedSessions / totalSessions) * 100) 
+      : 100;
+
+    // Calculate average check-in time based on number of questions answered
+    let totalQuestions = 0;
+    let sessionsWithAnswers = 0;
+    
+    sessionsWithTime.forEach(s => {
+      try {
+        const answers = JSON.parse(s.answers);
+        if (answers && answers.length > 0) {
+          totalQuestions += answers.length;
+          sessionsWithAnswers++;
+        }
+      } catch (e) {}
+    });
+
+    let avgTimeStr = '0m 00s';
+    if (sessionsWithAnswers > 0) {
+      // Assume 30 seconds per question + 60 seconds base time for scanning/login
+      const avgSeconds = Math.round(((totalQuestions / sessionsWithAnswers) * 30) + 60);
+      const mins = Math.floor(avgSeconds / 60);
+      const secs = avgSeconds % 60;
+      avgTimeStr = `${mins}m ${secs}s`;
+    }
+
+    // Chart 1: Top Complaints
+    const complaintCounts = {};
+    sessionsWithTime.forEach(s => {
+      const title = s.complaintTitle || 'Unknown';
+      complaintCounts[title] = (complaintCounts[title] || 0) + 1;
+    });
+    
+    const topComplaints = Object.entries(complaintCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // Chart 2: Sessions Trend (Last 7 Days)
+    const sessionsByDateMap = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+      sessionsByDateMap[dateStr] = 0;
+    }
+
+    sessionsWithTime.forEach(s => {
+      const dateStr = new Date(s.submittedAt).toISOString().split('T')[0];
+      if (sessionsByDateMap[dateStr] !== undefined) {
+        sessionsByDateMap[dateStr]++;
+      }
+    });
+
+    const sessionsTrend = Object.keys(sessionsByDateMap).map(date => ({
+      date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      count: sessionsByDateMap[date]
+    }));
 
     res.status(200).json({
       success: true,
       metrics: {
         totalSessionsToday: totalSessions,
         redFlagCount: redFlagAlerts,
-        averageCompletionTime: avgTime,
+        averageCompletionTime: avgTimeStr,
         acceptanceRate: `${acceptanceRate}%`,
         registeredPatientsCount: registeredPatients,
         emrSyncedCount: hisPushed,
         sandboxMode: true
+      },
+      charts: {
+        topComplaints,
+        sessionsTrend
       }
     });
   } catch (err) {
@@ -1024,7 +1216,7 @@ app.get('/api/sessions', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
 // ==============================================================================
 app.post('/api/sessions/:id/physician-edit', requireRole(['DOCTOR', 'ADMIN']), async (req, res) => {
   const { id } = req.params;
-  const { sections, signed } = req.body;
+  const { sections, signed, followUpDate, illnessSeverity } = req.body;
 
   try {
     const updatedSession = await prisma.session.update({
@@ -1033,11 +1225,26 @@ app.post('/api/sessions/:id/physician-edit', requireRole(['DOCTOR', 'ADMIN']), a
         editedByPhysician: true,
         physicianEditedSummary: JSON.stringify(sections || []),
         physicianSignedAt: signed ? new Date() : undefined,
-        physicianId: req.user?.id || 'dr_sunita_rao'
+        physicianId: req.user?.id || 'dr_sunita_rao',
+        followUpDate: followUpDate ? new Date(followUpDate) : undefined,
+        illnessSeverity: illnessSeverity || undefined
       }
     });
 
     console.log(`👨‍⚕️ [PHYSICIAN EDIT] Session ${id} amended & persisted distinctly from AI draft.`);
+
+    // If follow-up date is provided, notify the patient immediately
+    if (followUpDate) {
+      const patientData = await prisma.patient.findUnique({
+        where: { id: updatedSession.patientId }
+      });
+      if (patientData) {
+        // Call it asynchronously without awaiting so it doesn't block the response
+        notifyScheduledFollowUp(patientData, followUpDate, illnessSeverity).catch(err => {
+          console.error('❌ [PHYSICIAN EDIT] Failed to notify scheduled follow-up:', err);
+        });
+      }
+    }
 
     res.json({
       success: true,
@@ -1403,7 +1610,28 @@ app.post('/api/admin/purge-expired', requireRole(['ADMIN']), async (req, res) =>
   }
 });
 
-// Start Server
+// ==============================================================================
+// DEBUG/HACKATHON ENDPOINT: Trigger Cron Logic Manually for Demo
+// ==============================================================================
+app.post('/api/debug/run-followup-cron', async (req, res) => {
+  try {
+    console.log('🚀 [Manual Trigger] Running Follow-Up Appointment Checks...');
+    // We can't directly call the cron callback from followUpService.js easily unless we export it, 
+    // so let's just do a quick mock run or export the inner function in followUpService.js
+    const { runFollowUpChecksNow } = require('./services/followUpService');
+    if (runFollowUpChecksNow) {
+      await runFollowUpChecksNow();
+    }
+    res.json({ success: true, message: 'Follow-up checks executed successfully. Check console logs.' });
+  } catch (err) {
+    console.error('❌ [Manual Trigger Error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Start Follow-Up Cron Job
+startFollowUpCronJob();
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[MediKiosk Backend] Server running on http://localhost:${PORT}`);
   console.log(`[MediKiosk Backend] Real OCR engine, ABDM Gateway & Prisma ORM database initialized.`);

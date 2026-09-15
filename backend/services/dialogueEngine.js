@@ -79,9 +79,9 @@ async function getNextQuestion({ complaintId, complaintTitle, history, patientMe
       If the history is already comprehensive enough (4-5 questions answered) and you have enough information, return a JSON object with "isComplete": true instead of a question.
     `;
 
-    // Setting a hard timeout using Promise.race (4000ms max)
+    // Setting a hard timeout using Promise.race (8000ms max)
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('LLM_TIMEOUT')), 4000)
+      setTimeout(() => reject(new Error('LLM_TIMEOUT')), 8000)
     );
 
     const schema = {
@@ -120,7 +120,7 @@ async function getNextQuestion({ complaintId, complaintTitle, history, patientMe
     });
 
     const response = await Promise.race([llmPromise, timeoutPromise]);
-    const responseData = JSON.parse(response.text());
+    const responseData = JSON.parse(response.text);
 
     if (responseData.isComplete) {
       return { source: 'LLM', isComplete: true };
@@ -157,7 +157,8 @@ async function getNextQuestion({ complaintId, complaintTitle, history, patientMe
     return {
       source: 'STATIC',
       isComplete: false,
-      data: staticQuestion
+      data: staticQuestion,
+      error_debug: error.message
     };
   }
 }

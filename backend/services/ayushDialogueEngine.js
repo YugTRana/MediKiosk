@@ -180,7 +180,7 @@ async function getAyushClarifyingQuestion({ freeText, complaintTitle = 'Ayurvedi
     };
 
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('LLM_TIMEOUT')), 4000)
+      setTimeout(() => reject(new Error('LLM_TIMEOUT')), 8000)
     );
 
     const apiPromise = ai.models.generateContent({

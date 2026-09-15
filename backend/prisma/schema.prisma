@@ -56,6 +56,12 @@ model Session {
   redFlags               RedFlagAlert[]
   hisPush                HisPushedRecord?
   consentRecord          ConsentRecord?
+
+  // Follow-up Appointment fields
+  followUpDate           DateTime?
+  illnessSeverity        String?
+  followUpNotified       Boolean            @default(false)
+  followUpMissedNotified Boolean            @default(false)
 }
 
 model DigitizedDocument {
