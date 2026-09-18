@@ -31,7 +31,7 @@ async function sendOtp(email) {
   if (!email) throw new Error("Email address is required to send OTP.");
 
   const otp = generateOTP();
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+  const expiresAt = new Date(Date.now() + 1 * 60 * 1000); // 1 minute
 
   // Upsert the OTP session for the email
   await prisma.otpSession.upsert({
@@ -44,13 +44,13 @@ async function sendOtp(email) {
     from: `"MediKiosk Auth" <${process.env.SMTP_USER || 'no-reply@medikiosk.local'}>`,
     to: email,
     subject: 'Your MediKiosk Verification Code',
-    text: `Your OTP for MediKiosk login/registration is: ${otp}. It is valid for 5 minutes. Do not share this code with anyone.`,
+    text: `Your OTP for MediKiosk login/registration is: ${otp}. It is valid for 1 minute. Do not share this code with anyone.`,
     html: `
       <div style="font-family: sans-serif; padding: 20px;">
         <h2>MediKiosk Verification Code</h2>
         <p>Your one-time password (OTP) for login/registration is:</p>
         <h1 style="color: #047857; letter-spacing: 5px;">${otp}</h1>
-        <p>This code is valid for 5 minutes. Please do not share this code with anyone.</p>
+        <p>This code is valid for 1 minute. Please do not share this code with anyone.</p>
       </div>
     `
   };

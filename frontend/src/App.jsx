@@ -1,10 +1,8 @@
 import React from 'react';
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { Monitor, Stethoscope, HeartPulse, ShieldAlert } from 'lucide-react';
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { Monitor, Stethoscope, Shield, HeartPulse } from 'lucide-react';
 import KioskPage from './pages/KioskPage.jsx';
 import DoctorDashboard from './pages/DoctorDashboard.jsx';
-import StaffLoginPage from './pages/StaffLoginPage.jsx';
-import AdminLoginPage from './pages/AdminLoginPage.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
 
 function GlobalNav() {
@@ -51,8 +49,6 @@ function GlobalNav() {
           >
             <Stethoscope className="w-4 h-4" /> Doctor Dashboard
           </NavLink>
-          
-          <div className="w-px h-6 bg-slate-700 mx-1"></div>
 
           <NavLink
             to="/admin"
@@ -64,7 +60,7 @@ function GlobalNav() {
               }`
             }
           >
-            <ShieldAlert className="w-4 h-4" /> Admin
+            <Shield className="w-4 h-4" /> Admin Panel
           </NavLink>
         </div>
       </div>
@@ -72,59 +68,20 @@ function GlobalNav() {
   );
 }
 
-function ProtectedRoute({ children, allowedRoles }) {
-  const staffToken = localStorage.getItem('staffToken') || localStorage.getItem('token');
-  const role = localStorage.getItem('staffRole');
-  const location = useLocation();
-
-  if (!staffToken) {
-    if (location.pathname.startsWith('/admin')) {
-      return <Navigate to="/admin-login" state={{ from: location }} replace />;
-    }
-    return <Navigate to="/staff-login" state={{ from: location }} replace />;
-  }
-  if (allowedRoles && !allowedRoles.includes(role?.toUpperCase())) {
-    return <Navigate to="/staff-login" replace />;
-  }
-  return children;
-}
-
 export default function App() {
-  const location = useLocation();
-  const hideNav = location.pathname === '/staff-login' || location.pathname === '/admin-login';
-
   return (
-    <div className={`min-h-screen flex flex-col dynamic-bg`}>
-      {!hideNav && <GlobalNav />}
+    <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
+      <GlobalNav />
       
-      <main className="flex-1">
+      <div className="flex-1">
         <Routes>
           <Route path="/" element={<Navigate to="/kiosk" replace />} />
           <Route path="/kiosk" element={<KioskPage />} />
-          <Route path="/staff-login" element={<StaffLoginPage />} />
-          <Route path="/admin-login" element={<AdminLoginPage />} />
-          
-          <Route 
-            path="/doctor" 
-            element={
-              <ProtectedRoute allowedRoles={['DOCTOR', 'ADMIN']}>
-                <DoctorDashboard />
-              </ProtectedRoute>
-            } 
-          />
-          
-          <Route 
-            path="/admin" 
-            element={
-              <ProtectedRoute allowedRoles={['ADMIN']}>
-                <AdminPanel />
-              </ProtectedRoute>
-            } 
-          />
-          
+          <Route path="/doctor" element={<DoctorDashboard />} />
+          <Route path="/admin" element={<AdminPanel />} />
           <Route path="*" element={<Navigate to="/kiosk" replace />} />
         </Routes>
-      </main>
+      </div>
     </div>
   );
 }

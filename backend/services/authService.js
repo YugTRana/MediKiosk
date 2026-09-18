@@ -69,7 +69,7 @@ async function registerPatient({ name, mobile, email, password, age, gender, add
   const token = jwt.sign(
     { id: newPatient.id, mobile: newPatient.mobile, role: 'PATIENT' },
     JWT_SECRET,
-    { expiresIn: '8h' }
+    { expiresIn: '4h' }
   );
 
   console.log(`🎉 [Auth Service] New Patient Registered: ${newPatient.name} (+91 ${newPatient.mobile})`);
@@ -115,7 +115,7 @@ async function loginPatient({ mobile, password }) {
   const token = jwt.sign(
     { id: patient.id, mobile: patient.mobile, role: 'PATIENT' },
     JWT_SECRET,
-    { expiresIn: '8h' }
+    { expiresIn: '4h' }
   );
 
   console.log(`🔑 [Auth Service] Patient Logged In: ${patient.name} (+91 ${patient.mobile})`);

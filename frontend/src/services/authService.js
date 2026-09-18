@@ -65,6 +65,7 @@ export async function signupPatient({ name, mobile, email, password, age, gender
   const data = await res.json();
   if (res.ok && data.patientProfile) {
     handleAuthResponse(data, false);
+    localStorage.setItem('patientProfile', JSON.stringify(data.patientProfile));
     return data.patientProfile;
   }
   throw new Error(data.message || 'Registration failed. Please try again.');
@@ -89,6 +90,7 @@ export async function loginPatient({ mobile, password }) {
   const data = await res.json();
   if (res.ok && data.patientProfile) {
     handleAuthResponse(data, false);
+    localStorage.setItem('patientProfile', JSON.stringify(data.patientProfile));
     return data.patientProfile;
   }
   throw new Error(data.message || 'Login failed. Please check your credentials.');
@@ -167,6 +169,7 @@ export function clearStaffSession() {
 export function logout() {
   clearStaffSession();
   localStorage.removeItem('patientToken');
+  localStorage.removeItem('patientProfile');
 }
 
 /**

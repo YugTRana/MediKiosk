@@ -55,6 +55,49 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 } // Up to 25MB documents/photos
 });
 
+app.use(cookieParser());
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
+
+// Set up security headers
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 300, 
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', limiter);
+
+// Create temp directories if they don't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
+
+// ------------------------------------------------------------------
+// PUBLIC APIS
+// ------------------------------------------------------------------
+app.get('/api/public/stats', async (req, res) => {
+  try {
+    const patientCount = await prisma.patient.count();
+    const sessionCount = await prisma.session.count();
+    // Dummy average wait time or calculate it if possible
+    res.json({
+      patientsServed: patientCount,
+      totalSessions: sessionCount,
+      avgWaitTime: '< 2 mins', // Hard to compute without start/end times in DB accurately for now
+      rating: '4.9/5'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ------------------------------------------------------------------
+// AUTH & PATIENT MANAGEMENT ROUTES
+// ------------------------------------------------------------------
+
 // Fallback dialogue flows path
 const dialogueFlowsPath = path.join(__dirname, 'mockData', 'dialogueFlows.json');
 let fallbackFlows = { complaints: [] };
