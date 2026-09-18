@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Settings, Server, RefreshCw, Database, Activity, CheckCircle2, XCircle,
-  FileText, Leaf, FlaskConical, Play, Check, Clock, Users, Send, Code2,
+import { 
+  Settings, Server, RefreshCw, Database, Activity, CheckCircle2, XCircle, 
+  FileText, Leaf, FlaskConical, Play, Check, Clock, Users, Send, Code2, 
   ShieldCheck, AlertTriangle, Layers, Trash2, Search, Smartphone, User, MapPin,
   RotateCcw, Sparkles, HeartPulse, Stethoscope, ArrowRight, Radio, Award,
   Volume2, VolumeX, Mic, MicOff, PieChart, UploadCloud, Moon, Sun, MonitorPlay, Zap, Globe
@@ -9,15 +9,15 @@ import {
 import { extractDocumentWithDocAI, getLabFlagBadgeClass } from '../services/docAiService.js';
 import { fetchAdminPatients, deleteAdminPatient, pushFhirToHospitalEmr, getAuthHeaders } from '../services/authService.js';
 import { convertSessionToFhirR4Bundle } from '../services/fhirGenerator.js';
-import {
-  getSpeechProvider,
-  setSpeechProvider,
-  fetchSpeechConfig,
-  speakText,
-  cancelSpeech,
-  startListening,
-  isSTTSupported,
-  REGIONAL_LANGUAGES
+import { 
+  getSpeechProvider, 
+  setSpeechProvider, 
+  fetchSpeechConfig, 
+  speakText, 
+  cancelSpeech, 
+  startListening, 
+  isSTTSupported, 
+  REGIONAL_LANGUAGES 
 } from '../services/speechService.js';
 import LanguageToggle from '../components/LanguageToggle.jsx';
 
@@ -282,7 +282,7 @@ export default function AdminPanel() {
   // Live Kiosk Feed Consumer
   useEffect(() => {
     if (!isSpectatorActive) return;
-
+    
     const fetchTelemetry = async () => {
       try {
         const res = await fetch('http://localhost:3000/api/telemetry');
@@ -330,7 +330,7 @@ export default function AdminPanel() {
   const handleTestAsr = () => {
     if (testAsrListening) {
       if (testAsrRecRef.current && testAsrRecRef.current.stop) {
-        try { testAsrRecRef.current.stop(); } catch (e) { }
+        try { testAsrRecRef.current.stop(); } catch (e) {}
       }
       setTestAsrListening(false);
       setTestAsrLevel(0);
@@ -375,7 +375,7 @@ export default function AdminPanel() {
 
   return (
     <div className={`min-h-screen transition-colors duration-500 font-sans p-4 md:p-8 flex flex-col gap-6 select-none ${isDarkMode ? 'dark-theme bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-
+      
       {/* Top Header with MediKiosk Branding & Demo Status */}
       <header className={`${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} p-4 md:p-5 rounded-2xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border transition-colors`}>
         <div className="flex items-center gap-3">
@@ -567,10 +567,10 @@ export default function AdminPanel() {
       {/* ========================================================================= */}
       {/* 2. HACKATHON COMMAND CENTER MODULES                                       */}
       {/* ========================================================================= */}
-
+      
       {/* A. Live Telemetry & Kiosk Spectator Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
+        
         {/* Live AI Analytics & Telemetry */}
         <div className={`col-span-1 lg:col-span-2 p-6 rounded-3xl border shadow-sm flex flex-col gap-5 transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
@@ -581,7 +581,7 @@ export default function AdminPanel() {
               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span> Online
             </span>
           </div>
-
+          
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className="flex justify-between items-center mb-2">
@@ -634,7 +634,7 @@ export default function AdminPanel() {
               {isSpectatorActive ? 'Stop Feed' : 'Start Feed'}
             </button>
           </div>
-
+          
           <div className={`flex-1 rounded-xl p-3 font-mono text-[10px] md:text-xs overflow-y-auto min-h-[160px] max-h-[160px] flex flex-col justify-end gap-1.5 border ${isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'}`}>
             {!isSpectatorActive && (
               <div className="text-center opacity-50 my-auto">Feed offline. Click 'Start Feed' to intercept.</div>
@@ -657,11 +657,11 @@ export default function AdminPanel() {
           </h3>
           <span className={`text-xs font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{patients.length} Active Patients</span>
         </div>
-
+        
         <div className="flex flex-col sm:flex-row items-center justify-between gap-6 sm:gap-2 relative w-full px-4 sm:px-12">
           {/* Connecting Line */}
           <div className={`absolute top-1/2 left-12 right-12 h-1 hidden sm:block -translate-y-1/2 rounded-full ${isDarkMode ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-
+          
           {/* Node 1: Kiosk */}
           <div className="relative z-10 flex flex-col items-center gap-3">
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border-2 shadow-lg ${isDarkMode ? 'bg-slate-950 border-blue-500/50 text-blue-400' : 'bg-blue-50 border-blue-200 text-blue-600'}`}>
@@ -676,7 +676,7 @@ export default function AdminPanel() {
               <Users className="w-6 h-6" />
             </div>
             <span className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>2. Wait Queue</span>
-
+            
             {/* Blips */}
             <div className="absolute -top-3 -right-3 flex gap-1">
               {patients.slice(0, 3).map((p, i) => (
@@ -702,7 +702,7 @@ export default function AdminPanel() {
       {/* 3. ORIGINAL REAL METRICS VIEW ROW                                         */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
+        
         {/* Metric 1: Total Sessions Today */}
         <div className={`p-5 rounded-2xl border shadow-sm flex flex-col justify-between gap-3 transition-colors ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center justify-between">
@@ -773,7 +773,7 @@ export default function AdminPanel() {
       {/* 2A. ACTUAL ANALYTICS CHARTS                                               */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
+        
         {/* Chart 1: Sessions Trend */}
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col gap-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -787,11 +787,11 @@ export default function AdminPanel() {
               chartsData.sessionsTrend.map((dataPoint, idx) => {
                 const maxCount = Math.max(...chartsData.sessionsTrend.map(d => d.count), 1);
                 const heightPercentage = maxCount === 0 ? '4px' : `${(dataPoint.count / maxCount) * 100}%`;
-
+                
                 return (
                   <div key={idx} className="flex flex-col items-center flex-1 group">
                     <div className="relative w-full flex justify-center h-32 items-end">
-                      <div
+                      <div 
                         className="w-full max-w-[32px] bg-blue-500 rounded-t-md group-hover:bg-blue-600 transition-all duration-300 relative"
                         style={{ height: heightPercentage, minHeight: '4px' }}
                       >
@@ -829,7 +829,7 @@ export default function AdminPanel() {
                 const widthPercentage = maxCount === 0 ? '0%' : `${(complaint.count / maxCount) * 100}%`;
                 const colors = ['bg-purple-500', 'bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 'bg-red-500'];
                 const bgClass = colors[idx % colors.length];
-
+                
                 return (
                   <div key={idx} className="flex flex-col gap-1 w-full">
                     <div className="flex justify-between items-center text-[11px] font-bold">
@@ -864,10 +864,11 @@ export default function AdminPanel() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-black text-slate-900">ABDM National Health Authority & DPDP Consent Layer</h3>
-                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${abdmStatus?.mode === 'LIVE_SANDBOX'
+                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                  abdmStatus?.mode === 'LIVE_SANDBOX'
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                     : 'bg-amber-100 text-amber-900 border-amber-300'
-                  }`}>
+                }`}>
                   {abdmStatus?.mode === 'LIVE_SANDBOX' ? '● LIVE_SANDBOX (dev.abdm.gov.in)' : '● SANDBOX_SIMULATOR (Local Fallback)'}
                 </span>
               </div>
@@ -1082,10 +1083,10 @@ export default function AdminPanel() {
               <label className="flex items-center justify-center px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl cursor-pointer transition-colors text-xs font-bold text-slate-700 whitespace-nowrap">
                 <UploadCloud className="w-4 h-4 mr-2 text-indigo-600" />
                 {docAiFile ? docAiFile.name.substring(0, 15) + (docAiFile.name.length > 15 ? '...' : '') : 'Upload Image/PDF'}
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="hidden"
+                <input 
+                  type="file" 
+                  accept="image/*,application/pdf" 
+                  className="hidden" 
                   onChange={(e) => setDocAiFile(e.target.files[0])}
                 />
               </label>
@@ -1099,7 +1100,7 @@ export default function AdminPanel() {
                 <span>{testingOcr ? 'Extracting...' : 'Run Test'}</span>
               </button>
             </div>
-
+            
             {!docAiFile && (
               <p className="text-[10px] text-slate-400 italic">
                 *No file uploaded. Will fallback to a dummy demo document for testing.
@@ -1114,15 +1115,16 @@ export default function AdminPanel() {
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Extraction Complete
                 </h4>
                 {ocrResult.confidenceScore && (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${ocrResult.confidenceScore > 0.85
-                      ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    ocrResult.confidenceScore > 0.85 
+                      ? 'bg-emerald-100 text-emerald-700 border-emerald-300' 
                       : 'bg-amber-100 text-amber-700 border-amber-300'
-                    }`}>
+                  }`}>
                     Confidence: {(ocrResult.confidenceScore * 100).toFixed(0)}%
                   </span>
                 )}
               </div>
-
+              
               <div className="p-4 flex flex-col gap-4 text-xs">
                 {/* Diagnoses */}
                 {ocrResult.diagnoses && ocrResult.diagnoses.length > 0 && (
@@ -1133,7 +1135,7 @@ export default function AdminPanel() {
                     </ul>
                   </div>
                 )}
-
+                
                 {/* Medications */}
                 {ocrResult.medications && ocrResult.medications.length > 0 && (
                   <div>
@@ -1220,10 +1222,10 @@ export default function AdminPanel() {
                   HTTP 201 Created
                 </span>
               </div>
-
+              
               <div className="p-4 flex flex-col gap-3 text-xs text-slate-700">
                 <p className="font-bold">Generated FHIR R4 Bundle Summary:</p>
-
+                
                 {hisResult.fhirBundle ? (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-50 p-3 border border-slate-200 rounded-xl">
@@ -1240,14 +1242,14 @@ export default function AdminPanel() {
                     <span className="text-slate-600">Sync completed but detailed bundle structure is hidden.</span>
                   </div>
                 )}
-
+                
                 <div className="mt-2 pt-3 border-t border-slate-100">
                   <span className="block text-[10px] uppercase font-bold text-slate-400 mb-2">Transmission Log</span>
                   <div className="bg-slate-900 text-purple-300 p-3 rounded-xl font-mono text-[10px] overflow-auto max-h-40 flex flex-col gap-1">
-                    <div> Authenticating with HIS... <span className="text-emerald-400">[OK]</span></div>
-                    <div> Validating FHIR R4 Structure... <span className="text-emerald-400">[OK]</span></div>
-                    <div> Transmitting Bundle ({(hisResult.fhirBundle?.entry?.length || 1) * 324} bytes)... <span className="text-emerald-400">[OK]</span></div>
-                    <div className="text-emerald-400 mt-1"> Encounter & Patient Record Committed.</div>
+                    <div>&gt; Authenticating with HIS... <span className="text-emerald-400">[OK]</span></div>
+                    <div>&gt; Validating FHIR R4 Structure... <span className="text-emerald-400">[OK]</span></div>
+                    <div>&gt; Transmitting Bundle ({(hisResult.fhirBundle?.entry?.length || 1) * 324} bytes)... <span className="text-emerald-400">[OK]</span></div>
+                    <div className="text-emerald-400 mt-1">&gt; Encounter & Patient Record Committed.</div>
                   </div>
                 </div>
               </div>
@@ -1325,10 +1327,11 @@ export default function AdminPanel() {
                   {/* Test TTS */}
                   <button
                     onClick={handleTestTts}
-                    className={`px-4 py-2 text-xs font-black rounded-xl border flex items-center gap-2 transition-all cursor-pointer shadow-sm ${testTtsPlaying
+                    className={`px-4 py-2 text-xs font-black rounded-xl border flex items-center gap-2 transition-all cursor-pointer shadow-sm ${
+                      testTtsPlaying
                         ? 'bg-amber-600 text-white border-amber-600 animate-pulse'
                         : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-100'
-                      }`}
+                    }`}
                   >
                     <Volume2 className="w-4 h-4 text-amber-600" />
                     <span>{testTtsPlaying ? 'Playing Audio...' : 'Test Voice Output (TTS)'}</span>
@@ -1337,10 +1340,11 @@ export default function AdminPanel() {
                   {/* Test ASR */}
                   <button
                     onClick={handleTestAsr}
-                    className={`px-4 py-2 text-xs font-black rounded-xl border flex items-center gap-2 transition-all cursor-pointer shadow-sm ${testAsrListening
+                    className={`px-4 py-2 text-xs font-black rounded-xl border flex items-center gap-2 transition-all cursor-pointer shadow-sm ${
+                      testAsrListening
                         ? 'bg-red-600 text-white border-red-600 animate-pulse'
                         : 'bg-slate-800 text-white border-slate-800 hover:bg-slate-900'
-                      }`}
+                    }`}
                   >
                     {testAsrListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-amber-400" />}
                     <span>{testAsrListening ? 'Listening (Speak Now)...' : 'Test Microphone Input (ASR)'}</span>
@@ -1356,7 +1360,7 @@ export default function AdminPanel() {
                       <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
                       <span>Audio Input Level: {testAsrLevel}%</span>
                       <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
-                        <div
+                        <div 
                           className="bg-amber-400 h-full transition-all duration-75"
                           style={{ width: `${testAsrLevel}%` }}
                         />

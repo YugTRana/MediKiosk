@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   HeartPulse, Stethoscope, Activity, ArrowRight, Monitor, 
-  CheckCircle2, ShieldCheck, Lock, UserCheck, Star, Award,
-  Volume2, Sparkles, Users, Zap
+  CheckCircle2, ShieldCheck, Lock, UserCheck, Star, Award 
 } from 'lucide-react';
 import LanguageToggle from '../components/LanguageToggle.jsx';
 
@@ -44,29 +43,6 @@ export default function HomePage() {
     avgWaitTime: '< 2 mins',
     rating: '4.9/5'
   });
-
-  const playAiGreeting = () => {
-    const msg = new SpeechSynthesisUtterance("Welcome to Medi Kiosk. How can I help you today?");
-    
-    // Find a sweet/female voice
-    const voices = window.speechSynthesis.getVoices();
-    const femaleVoice = voices.find(v => 
-      v.name.includes('Female') || 
-      v.name.includes('Zira') || 
-      v.name.includes('Samantha') || 
-      v.name.includes('Victoria') ||
-      (v.name.includes('Google') && v.name.includes('UK English'))
-    );
-    
-    if (femaleVoice) {
-      msg.voice = femaleVoice;
-    }
-    
-    // Higher pitch and slightly slower rate for a sweeter, friendly tone
-    msg.rate = 0.95;
-    msg.pitch = 1.3;
-    window.speechSynthesis.speak(msg);
-  };
 
   useEffect(() => {
     // Fetch dynamic stats from the backend API
@@ -114,13 +90,6 @@ export default function HomePage() {
                 Start My Check-In
                 <ArrowRight className="w-5 h-5" />
               </button>
-              <button
-                onClick={playAiGreeting}
-                className="px-8 py-4 bg-slate-800/80 hover:bg-slate-700/80 text-amber-300 font-bold rounded-2xl transition-all border border-amber-500/30 w-full sm:w-auto cursor-pointer hover:scale-105 backdrop-blur-sm shadow-[0_0_15px_rgba(245,158,11,0.2)] flex items-center justify-center gap-2"
-              >
-                <Volume2 className="w-5 h-5" />
-                Hear the AI Demo
-              </button>
               <a
                 href="#how-it-works"
                 className="px-8 py-4 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 font-bold rounded-2xl transition-all border border-slate-700 w-full sm:w-auto cursor-pointer hover:scale-105 backdrop-blur-sm shadow-lg"
@@ -129,26 +98,6 @@ export default function HomePage() {
               </a>
             </div>
           </RevealOnScroll>
-        </div>
-
-        {/* Marquee Ticker Bottom of Hero */}
-        <div className="absolute bottom-0 left-0 w-full bg-blue-600/20 backdrop-blur-md border-t border-blue-500/30 overflow-hidden py-3">
-          <div className="whitespace-nowrap flex items-center w-[200%] animate-marquee">
-            <div className="flex items-center justify-around w-1/2 text-blue-200 font-black text-sm uppercase tracking-widest">
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Powered by AI</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> 10+ Regional Languages</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Secure FHIR Integration</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Zero-Wait Triage</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Voice Enabled</span>
-            </div>
-            <div className="flex items-center justify-around w-1/2 text-blue-200 font-black text-sm uppercase tracking-widest">
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Powered by AI</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> 10+ Regional Languages</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Secure FHIR Integration</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Zero-Wait Triage</span>
-              <span className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Voice Enabled</span>
-            </div>
-          </div>
         </div>
       </section>
 
